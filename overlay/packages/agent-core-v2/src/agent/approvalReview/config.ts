@@ -1,0 +1,26 @@
+import { z } from 'zod';
+import { registerFlagDefinition } from '#/app/flag/flagRegistry';
+
+export const APPROVAL_REVIEW_FLAG = 'approval_review';
+
+registerFlagDefinition({
+  id: APPROVAL_REVIEW_FLAG,
+  title: 'Model approval reviewer',
+  description:
+    'Review pending tool approvals with a separate model call; uncertain or failed reviews deny the action. Use Always Ask mode.',
+  env: 'KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW',
+  default: false,
+  surface: 'core',
+});
+
+export const ApprovalReviewConfigSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(120000).default(30000),
+    maxContextChars: z.number().int().min(4000).max(100000).default(24000),
+    twoStage: z.boolean().default(true),
+    policy: z.string().max(8000).optional(),
+  })
+  .strict();
+
+export type ApprovalReviewConfig = z.infer<typeof ApprovalReviewConfigSchema>;

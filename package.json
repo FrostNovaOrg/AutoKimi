@@ -1,0 +1,24 @@
+{
+  "name": "autokimi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "prepare:upstream": "node tools/prepare.mjs",
+    "build": "node tools/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:upstream": "node tools/test-upstream.mjs",
+    "check": "node tools/check-repo.mjs",
+    "package:runtime": "node tools/install.mjs --prepare .artifacts/runtime",
+    "install:local": "node tools/install.mjs",
+    "test:install": "node tools/smoke-install.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FrostNovaOrg/AutoKimi.git"
+  }
+}

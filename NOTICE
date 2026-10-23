@@ -1,0 +1,9 @@
+AutoKimi contains modifications and integration patches for Kimi Code.
+
+Upstream: https://github.com/MoonshotAI/kimi-code
+Pinned commit: b5e28fd6beac752a2cdcc0ff2f5fdf40e6494fbb
+Copyright (c) 2026 Moonshot AI
+License: MIT (see LICENSE.upstream)
+
+AutoKimi is an independent project. It is not an official Moonshot AI release.
+Runtime dependencies retain their own licenses in the generated runtime package.

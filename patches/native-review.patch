@@ -1,0 +1,1171 @@
+diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
+index 927e1fb..f4704cf 100644
+--- a/apps/kimi-code/src/tui/commands/dispatch.ts
++++ b/apps/kimi-code/src/tui/commands/dispatch.ts
+@@ -67,6 +67,7 @@ import {
+ import { handleSwarmCommand } from './swarm';
+ import { handleTowerCommand } from './tower';
+ import { handleUndoCommand } from './undo';
++import { handleReviewCommand } from './review';
+ import { handleRemoteControlCommand, handleWebCommand } from './web';
+ 
+ // ---------------------------------------------------------------------------
+@@ -473,6 +474,9 @@ async function handleBuiltInSlashCommand(
+     case 'permission':
+       showPermissionPicker(host);
+       return;
++    case 'auto-review':
++      await handleReviewCommand(host, args);
++      return;
+     case 'settings':
+       showSettingsSelector(host);
+       return;
+diff --git a/apps/kimi-code/src/tui/commands/registry.ts b/apps/kimi-code/src/tui/commands/registry.ts
+index e4ad7ab..906f995 100644
+--- a/apps/kimi-code/src/tui/commands/registry.ts
++++ b/apps/kimi-code/src/tui/commands/registry.ts
+@@ -145,6 +145,14 @@ function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: str
+ }
+ 
+ export const BUILTIN_SLASH_COMMANDS = [
++  {
++    name: 'auto-review',
++    aliases: [],
++    description: 'Model approval reviewer: on, off, status, or model <alias>',
++    priority: 102,
++    availability: 'idle-only',
++    argumentHint: '[on|off|status|model <alias>]',
++  },
+   {
+     name: 'yolo',
+     aliases: ['yes'],
+diff --git a/apps/kimi-code/src/tui/components/chrome/footer.ts b/apps/kimi-code/src/tui/components/chrome/footer.ts
+index d9fd386..7e4a5fb 100644
+--- a/apps/kimi-code/src/tui/components/chrome/footer.ts
++++ b/apps/kimi-code/src/tui/components/chrome/footer.ts
+@@ -17,6 +17,7 @@ import { currentTheme } from '#/tui/theme';
+ import type { ColorPalette } from '#/tui/theme/colors';
+ import type { AppState } from '#/tui/types';
+ import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
++import { isExperimentalFlagEnabled } from '#/tui/commands/experimental-flags';
+ import {
+   StatusLineCommandRunner,
+   type StatusLinePayload,
+@@ -448,6 +449,10 @@ export class FooterComponent implements Component {
+     }
+ 
+     const modes: string[] = [];
++    if (isExperimentalFlagEnabled('approval_review')) {
++      modes.push(chalk.hex(state.permissionMode === 'manual' ? colors.primary : colors.warning)
++        .bold(state.permissionMode === 'manual' ? 'Auto-review' : 'Auto-review paused'));
++    }
+     if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
+     if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
+     if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
+diff --git a/apps/kimi-code/src/tui/controllers/session-event-handler.ts b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
+index c227a0c..0a030d5 100644
+--- a/apps/kimi-code/src/tui/controllers/session-event-handler.ts
++++ b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
+@@ -688,7 +688,10 @@ export class SessionEventHandler {
+     const text = event.update.text;
+     if (text === undefined || text.length === 0) return;
+     const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
+-    if (tc === undefined) return;
++    if (tc === undefined) {
++      if (event.update.customKind === 'approval.review') this.host.showStatus(text, 'textMuted');
++      return;
++    }
+     if (event.update.kind === 'status') {
+       tc.appendProgress(text, { replace: event.update.replace === true });
+       return;
+diff --git a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts b/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
+index 08883eb..5bdc198 100644
+--- a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
++++ b/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
+@@ -5,6 +5,7 @@ import { join } from 'node:path';
+ import { describe, expect, it } from 'vitest';
+ 
+ import { FooterComponent } from '#/tui/components/chrome/footer';
++import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
+ import {
+   runStatusLineCommand,
+   STATUS_LINE_MAX_CAPTURE_BYTES,
+@@ -62,6 +63,18 @@ function plain(text: string): string {
+ }
+ 
+ describe('FooterComponent status_line items', () => {
++  it('shows whether model approval review is active or paused', () => {
++    setExperimentalFeatures([{ id: 'approval_review', enabled: true }]);
++    try {
++      const active = new FooterComponent({ ...baseState }).render(200).map(plain).join('\n');
++      expect(active).toContain('Auto-review');
++      expect(active).not.toContain('Auto-review paused');
++      const paused = new FooterComponent({ ...baseState, permissionMode: 'auto' }).render(200).map(plain).join('\n');
++      expect(paused).toContain('Auto-review paused');
++    } finally {
++      setExperimentalFeatures([]);
++    }
++  });
+   it('renders only the chosen slots in the given order', () => {
+     const state: AppState = {
+       ...baseState,
+diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+index 555d864..8d35c6c 100644
+--- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
++++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+@@ -5427,6 +5427,15 @@ command = "vim"
+     driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', extra), () => {});
+   }
+ 
++  it('displays approval review progress before the tool starts executing', async () => {
++    const { driver } = await makeDriver();
++    const showStatus = vi.spyOn(driver as unknown as { showStatus: (msg: string, color?: string) => void }, 'showStatus');
++    driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', {
++      update: { kind: 'status', customKind: 'approval.review', text: 'Reviewing permission with model…' },
++    }), () => {});
++    expect(showStatus).toHaveBeenCalledWith('Reviewing permission with model…', 'textMuted');
++  });
++
+   function pendingSteer(): { session: ReturnType<typeof makeSession>; resolve: () => void; reject: (error: Error) => void } {
+     let resolve!: () => void;
+     let reject!: (error: Error) => void;
+diff --git a/packages/agent-core-v2/docs/config-manifest.toml b/packages/agent-core-v2/docs/config-manifest.toml
+index a82cc33..aace19b 100644
+--- a/packages/agent-core-v2/docs/config-manifest.toml
++++ b/packages/agent-core-v2/docs/config-manifest.toml
+@@ -322,6 +322,13 @@ merge_all_available_skills = true
+   # reason: string
+ # dangerous_command_guard: boolean
+ 
++# [permission.review]
++  # model: string
++  # timeout_ms: integer (default: 30000)
++  # max_context_chars: integer (default: 24000)
++  # two_stage: boolean (default: true)
++  # policy: string
++
+ # ##########################################################################
+ # providers
+ #   owner: src/app/kosongConfig/configSection.ts
+diff --git a/packages/agent-core-v2/src/agent/permissionRules/configSection.ts b/packages/agent-core-v2/src/agent/permissionRules/configSection.ts
+index f37a031..f0f23ac 100644
+--- a/packages/agent-core-v2/src/agent/permissionRules/configSection.ts
++++ b/packages/agent-core-v2/src/agent/permissionRules/configSection.ts
+@@ -15,6 +15,7 @@ import {
+ } from '#/app/config/toml';
+ 
+ import { parsePermissionPattern } from './matchesRule';
++import { ApprovalReviewConfigSchema } from '#/agent/approvalReview/config';
+ 
+ export const PERMISSION_SECTION = 'permission';
+ 
+@@ -38,6 +39,7 @@ export const PermissionRuleSchema = z.object({
+ export const PermissionConfigSchema = z.object({
+   rules: z.array(PermissionRuleSchema).optional(),
+   dangerousCommandGuard: z.boolean().optional(),
++  review: ApprovalReviewConfigSchema.optional(),
+ });
+ 
+ export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
+@@ -90,6 +92,10 @@ export const permissionFromToml = (rawSnake: unknown): unknown => {
+   if (raw['dangerousCommandGuard'] !== undefined) {
+     out['dangerousCommandGuard'] = raw['dangerousCommandGuard'];
+   }
++  if (raw['review'] !== undefined) {
++    out['review'] = isPlainObject(raw['review'])
++      ? transformPlainObject(raw['review']) : raw['review'];
++  }
+   return out;
+ };
+ 
+@@ -132,6 +138,11 @@ export const permissionToToml = (value: unknown, rawSnake: unknown): unknown =>
+   delete out['allow'];
+   delete out['ask'];
+   const rules = value['rules'];
++  if (isPlainObject(value['review'])) {
++    out['review'] = plainObjectToToml(value['review'], undefined);
++  } else {
++    delete out['review'];
++  }
+   if (Array.isArray(rules)) {
+     out['rules'] = rules.map((rule) =>
+       isPlainObject(rule) ? plainObjectToToml(rule, undefined) : rule,
+diff --git a/packages/agent-core-v2/src/agent/permissionRules/permissionRulesService.ts b/packages/agent-core-v2/src/agent/permissionRules/permissionRulesService.ts
+index 046ed8c..080eed2 100644
+--- a/packages/agent-core-v2/src/agent/permissionRules/permissionRulesService.ts
++++ b/packages/agent-core-v2/src/agent/permissionRules/permissionRulesService.ts
+@@ -5,6 +5,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+ import { IAgentStateService } from '#/agent/state/agentState';
+ import { IEventDispatcher } from '#/state/eventDispatcher';
++import { IConfigService } from '#/app/config/config';
++import { PERMISSION_SECTION, type PermissionConfig } from './configSection';
+ import {
+   IAgentPermissionRulesService,
+   type PermissionApprovalResultRecord,
+@@ -23,12 +25,16 @@ export class AgentPermissionRulesService implements IAgentPermissionRulesService
+     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
+     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+     @IAgentStateService private readonly agentState: IAgentStateService,
++    @IConfigService private readonly config: IConfigService,
+   ) {
+     this.agentState.contributeState(permissionRulesKey);
+   }
+ 
+   get rules(): readonly PermissionRule[] {
+-    return [...this.agentState.get(permissionRulesKey).rules];
++    return [
++      ...this.agentState.get(permissionRulesKey).rules,
++      ...(this.config.get<PermissionConfig | undefined>(PERMISSION_SECTION)?.rules ?? []),
++    ];
+   }
+ 
+   get sessionApprovalRulePatterns(): readonly string[] {
+diff --git a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
+index 96f36f1..69a2095 100644
+--- a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
++++ b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
+@@ -6,6 +6,11 @@ import { LifecycleScope } from '#/app/scopes';
+ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+ import { abortable, isUserCancellation } from '#/_base/utils/abort';
+ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
++import {
++  IAgentApprovalReviewService,
++  type ApprovalReviewResult,
++} from '#/agent/approvalReview/approvalReview';
++import '#/agent/approvalReview/approvalReviewService';
+ import type {
+   ApprovalResponse,
+   PermissionPolicyResolution,
+@@ -50,9 +55,11 @@ export class PermissionApprovalRequested extends AgentEvent2<PermissionApprovalR
+   static override readonly type = 'permission.approval.requested';
+   static override readonly observable = true;
+ }
+-export interface PermissionApprovalRequested extends PermissionApprovalRequestedPayload {}
++export interface PermissionApprovalRequested
++  extends PermissionApprovalRequestedPayload {}
+ 
+-export interface PermissionApprovalResolvedPayload extends PermissionApprovalRequestedPayload {
++export interface PermissionApprovalResolvedPayload
++  extends PermissionApprovalRequestedPayload {
+   readonly decision: 'approved' | 'rejected' | 'cancelled' | 'error';
+   readonly scope?: 'session';
+   readonly feedback?: string;
+@@ -64,18 +71,26 @@ export class PermissionApprovalResolved extends AgentEvent2<PermissionApprovalRe
+   static override readonly type = 'permission.approval.resolved';
+   static override readonly observable = true;
+ }
+-export interface PermissionApprovalResolved extends PermissionApprovalResolvedPayload {}
++export interface PermissionApprovalResolved
++  extends PermissionApprovalResolvedPayload {}
+ 
+-export class AgentToolApprovalService extends Service implements IAgentToolApprovalService {
++export class AgentToolApprovalService
++  extends Service
++  implements IAgentToolApprovalService
++{
+   declare readonly _serviceBrand: undefined;
+ 
+   constructor(
+     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+-    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
+-    @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
++    @IAgentPermissionModeService
++    private readonly modeService: IAgentPermissionModeService,
++    @IAgentPermissionRulesService
++    private readonly rulesService: IAgentPermissionRulesService,
+     @ISessionContext private readonly session: ISessionContext,
+     @ITelemetryService private readonly telemetry: ITelemetryService,
+     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
++    @IAgentApprovalReviewService
++    private readonly reviewer: IAgentApprovalReviewService,
+   ) {
+     super();
+   }
+@@ -94,7 +109,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+         return {
+           veto: denyToolExecution(
+             this.formatDenyMessage(
+-              result.message ?? `Tool "${context.toolCall.name}" was denied by permission policy.`,
++              result.message ??
++                `Tool "${context.toolCall.name}" was denied by permission policy.`,
+             ),
+           ),
+         };
+@@ -110,6 +126,53 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+     result: Extract<PermissionPolicyResult, { kind: 'ask' }>,
+     origin: string,
+   ): Promise<BeforeExecuteDecision | undefined> {
++    const interactiveReview =
++      result.resolveApproval !== undefined &&
++      ((origin === 'exit-plan-mode-review-ask' &&
++        context.toolCall.name === 'ExitPlanMode' &&
++        context.execution.display?.kind === 'plan_review') ||
++        (origin === 'goal-start-review-ask' &&
++          context.toolCall.name === 'CreateGoal' &&
++          context.execution.display?.kind === 'goal_start'));
++    if (this.reviewer.isEnabled() && !interactiveReview) {
++      let reviewed: ApprovalReviewResult;
++      try {
++        reviewed = await this.reviewer.review(context, result, origin);
++        if (
++          (reviewed?.kind !== 'approve' && reviewed?.kind !== 'deny') ||
++          (reviewed.kind === 'deny' &&
++            (typeof reviewed.message !== 'string' ||
++              reviewed.message.trim().length === 0))
++        )
++          throw new Error('Invalid automatic review resolution');
++      } catch (error) {
++        context.signal.throwIfAborted();
++        if (isUserCancellation(error)) throw error;
++        return {
++          veto: {
++            ...denyToolExecution(
++              this.formatDenyMessage(
++                'Auto-review failed to produce a valid permission decision; this action was denied and the turn stopped. Do not retry or request a manual permission override.',
++              ),
++            ),
++            stopTurn: true,
++          },
++        };
++      }
++      context.signal.throwIfAborted();
++      if (reviewed.kind === 'deny')
++        return {
++          veto: {
++            ...denyToolExecution(this.formatDenyMessage(reviewed.message)),
++            stopTurn: reviewed.stopTurn,
++          },
++        };
++      return this.resolvePermissionResolution(
++        reviewed,
++        context,
++        'model-approval-review',
++      );
++    }
+     const name = context.toolCall.name;
+     const action = context.execution.description ?? `Approve ${name}`;
+     const display =
+@@ -142,7 +205,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+       [INTERACTION_TAG_TOOL_CALL_ID]: context.toolCall.id,
+     };
+     let response: ApprovalResponse;
+-    void this.dispatcher.dispatch(new PermissionApprovalRequested(approvalContext));
++    void this.dispatcher.dispatch(
++      new PermissionApprovalRequested(approvalContext),
++    );
+     try {
+       response = await abortable(
+         interactions.request<typeof approvalRequest, ApprovalResponse>({
+@@ -214,7 +279,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+       approval_surface: display.kind,
+       duration_ms: Date.now() - startedAt,
+       session_cache_written: sessionApprovalRule !== undefined,
+-      has_feedback: response.feedback !== undefined && response.feedback.length > 0,
++      has_feedback:
++        response.feedback !== undefined && response.feedback.length > 0,
+       trace_id: context.trace?.traceId,
+     });
+ 
+@@ -225,7 +291,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+ 
+     if (response.decision === 'approved') return undefined;
+     return {
+-      veto: denyToolExecution(this.formatApprovalRejectionMessage(name, response)),
++      veto: denyToolExecution(
++        this.formatApprovalRejectionMessage(name, response),
++      ),
+     };
+   }
+ 
+diff --git a/packages/agent-core-v2/test/agent/permissionRules/permissionRules.test.ts b/packages/agent-core-v2/test/agent/permissionRules/permissionRules.test.ts
+index 7e1d2f6..9b6dfc2 100644
+--- a/packages/agent-core-v2/test/agent/permissionRules/permissionRules.test.ts
++++ b/packages/agent-core-v2/test/agent/permissionRules/permissionRules.test.ts
+@@ -12,6 +12,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+ import { IFileSystemStorageService } from '#/persistence/interface/storage';
+ import { IAgentStateService } from '#/agent/state/agentState';
+ import { IEventDispatcher } from '#/state/eventDispatcher';
++import { IConfigService } from '#/app/config/config';
+ import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+ 
+ import {
+@@ -43,10 +44,13 @@ let ix: TestInstantiationService;
+ let log: IAppendLogStore;
+ let dispatcher: IEventDispatcher;
+ let svc: IAgentPermissionRulesService;
++let configuredRules: PermissionRule[];
+ 
+ beforeEach(() => {
+   disposables = new DisposableStore();
+   ix = disposables.add(new TestInstantiationService());
++  configuredRules = [];
++  ix.stub(IConfigService, { get: () => ({ rules: configuredRules }) } as unknown as IConfigService);
+   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
+   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+   ix.set(IAgentPermissionRulesService, new SyncDescriptor(AgentPermissionRulesService));
+@@ -68,6 +72,13 @@ async function readRecords(): Promise<WireRecord[]> {
+ }
+ 
+ describe('AgentPermissionRulesService (wire-backed)', () => {
++  it('includes configured rules and reflects their removal without persisting stale copies', () => {
++    configuredRules = [denyRule];
++    svc.addRules([allowRule]);
++    expect(svc.rules).toEqual([allowRule, denyRule]);
++    configuredRules = [];
++    expect(svc.rules).toEqual([allowRule]);
++  });
+   it('addRules appends rules and exposes the accumulated rules', () => {
+     expect(svc.rules).toEqual([]);
+ 
+diff --git a/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts b/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
+index 3c18d24..60b36c7 100644
+--- a/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
++++ b/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
+@@ -6,6 +6,10 @@ import type { TestInstantiationService } from '#/_base/di/test';
+ import { UserCancellationError } from '#/_base/utils/abort';
+ import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
++import {
++  IAgentApprovalReviewService,
++  type ApprovalReviewResult,
++} from '#/agent/approvalReview/approvalReview';
+ import type {
+   PermissionMode,
+   PermissionPolicyResult,
+@@ -14,7 +18,10 @@ import {
+   IAgentPermissionRulesService,
+   type PermissionApprovalResultRecord,
+ } from '#/agent/permissionRules/permissionRules';
+-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
++import {
++  IAgentScopeContext,
++  makeAgentScopeContext,
++} from '#/agent/scopeContext/scopeContext';
+ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
+ import {
+   AgentToolApprovalService,
+@@ -33,12 +40,18 @@ import {
+ } from '#/agent/interaction/approval';
+ import { INTERACTION_TAG_SESSION_ID } from '#/human/interaction/interaction';
+ import { interactions } from '#/human/interaction/facade';
+-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
++import {
++  ISessionContext,
++  makeSessionContext,
++} from '#/session/sessionContext/sessionContext';
+ import { IEventDispatcher } from '#/state/eventDispatcher';
+ import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+ 
+ import { stubPermissionModeService } from '../permissionMode/stubs';
+-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
++import {
++  recordingTelemetry,
++  type TelemetryRecord,
++} from '../../app/telemetry/stubs';
+ 
+ const RETRY_GUIDANCE =
+   "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
+@@ -65,7 +78,8 @@ function makeContext(
+   return {
+     turnId: 1,
+     signal: options.signal ?? new AbortController().signal,
+-    trace: options.traceId === undefined ? undefined : { traceId: options.traceId },
++    trace:
++      options.traceId === undefined ? undefined : { traceId: options.traceId },
+     toolCall,
+     toolCalls: [toolCall],
+     args,
+@@ -91,6 +105,8 @@ describe('AgentToolApprovalService', () => {
+   let records: TelemetryRecord[];
+   let recorded: PermissionApprovalResultRecord[];
+   let eventBus: IEventBus;
++  let review: ReturnType<typeof vi.fn<IAgentApprovalReviewService['review']>>;
++  let reviewEnabled: boolean;
+ 
+   beforeEach(() => {
+     disposables = new DisposableStore();
+@@ -98,13 +114,23 @@ describe('AgentToolApprovalService', () => {
+     mode = 'manual';
+     records = [];
+     recorded = [];
++    reviewEnabled = false;
++    review = vi.fn(async () => ({ kind: 'approve' as const }));
+     ix = createServices(disposables, {
+       additionalServices: (reg) => {
++        reg.defineInstance(IAgentApprovalReviewService, {
++          _serviceBrand: undefined,
++          isEnabled: () => reviewEnabled,
++          review,
++        });
+         reg.defineInstance(
+           IAgentScopeContext,
+           makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
+         );
+-        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
++        reg.defineInstance(
++          IAgentPermissionModeService,
++          stubPermissionModeService(() => mode),
++        );
+         reg.defineInstance(IAgentPermissionRulesService, {
+           _serviceBrand: undefined,
+           rules: [],
+@@ -114,14 +140,17 @@ describe('AgentToolApprovalService', () => {
+             recorded.push(record);
+           },
+         });
+-        reg.defineInstance(ISessionContext, makeSessionContext({
+-          sessionId: 'test-session',
+-          workspaceId: 'test-workspace',
+-          sessionDir: '/tmp/test-session',
+-          sessionScope: 'sessions/test-workspace/test-session',
+-          metaScope: 'sessions/test-workspace/test-session/session-meta',
+-          cwd: '/tmp/test-session',
+-        }));
++        reg.defineInstance(
++          ISessionContext,
++          makeSessionContext({
++            sessionId: 'test-session',
++            workspaceId: 'test-workspace',
++            sessionDir: '/tmp/test-session',
++            sessionScope: 'sessions/test-workspace/test-session',
++            metaScope: 'sessions/test-workspace/test-session/session-meta',
++            cwd: '/tmp/test-session',
++          }),
++        );
+         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
+         reg.defineInstance(IEventBus, eventBus);
+         const dispatcher: IEventDispatcher = {
+@@ -136,7 +165,9 @@ describe('AgentToolApprovalService', () => {
+       },
+       strict: true,
+     });
+-    (eventBus as EventBusService).activateAgent(ix.get(IAgentScopeContext).agentContext);
++    (eventBus as EventBusService).activateAgent(
++      ix.get(IAgentScopeContext).agentContext,
++    );
+   });
+   afterEach(() => {
+     disposables.dispose();
+@@ -149,7 +180,9 @@ describe('AgentToolApprovalService', () => {
+ 
+   function useBroker(
+     request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
+-  ): ReturnType<typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
++  ): ReturnType<
++    typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>
++  > {
+     const requestSpy = vi.fn(request);
+     const seen = new Set<string>();
+     disposables.add(
+@@ -162,9 +195,11 @@ describe('AgentToolApprovalService', () => {
+           })) {
+             if (seen.has(pending.id)) continue;
+             seen.add(pending.id);
+-            void requestSpy(pending.payload as ApprovalRequest).then((response) => {
+-              interactions.respond(pending.id, response);
+-            });
++            void requestSpy(pending.payload as ApprovalRequest).then(
++              (response) => {
++                interactions.respond(pending.id, response);
++              },
++            );
+           }
+         }),
+       ),
+@@ -188,14 +223,175 @@ describe('AgentToolApprovalService', () => {
+       IAgentScopeContext,
+       makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
+     );
+-    (eventBus as EventBusService).activateAgent(ix.get(IAgentScopeContext).agentContext);
++    (eventBus as EventBusService).activateAgent(
++      ix.get(IAgentScopeContext).agentContext,
++    );
+   }
+ 
++  describe('automatic review without manual fallback', () => {
++    it('executes an approval without requesting an interaction', async () => {
++      reviewEnabled = true;
++      const broker = useBroker(async () => ({ decision: 'rejected' }));
++      const events = subscribeApprovalEvents();
++      expect(
++        await make().requestToolApproval(
++          makeContext('Write'),
++          ask(),
++          'fallback-ask',
++        ),
++      ).toBeUndefined();
++      expect(review).toHaveBeenCalledOnce();
++      expect(broker).not.toHaveBeenCalled();
++      expect(events.requested).not.toHaveBeenCalled();
++    });
++
++    it.each([false, true])(
++      'returns a denial and preserves stopTurn=%s without asking',
++      async (stopTurn) => {
++        reviewEnabled = true;
++        review.mockResolvedValueOnce({
++          kind: 'deny',
++          message: 'Insufficient authorization.',
++          stopTurn,
++        });
++        const broker = useBroker(async () => ({ decision: 'approved' }));
++        const events = subscribeApprovalEvents();
++        expect(
++          await make().requestToolApproval(
++            makeContext('Bash'),
++            ask(),
++            'fallback-ask',
++          ),
++        ).toEqual({
++          veto: {
++            isError: true,
++            output: 'Insufficient authorization.',
++            stopTurn,
++          },
++        });
++        expect(broker).not.toHaveBeenCalled();
++        expect(events.requested).not.toHaveBeenCalled();
++      },
++    );
++
++    it.each([undefined, { kind: 'ask' }, { kind: 'deny', message: '' }])(
++      'blocks invalid reviewer resolutions without reaching the approval broker: %j',
++      async (resolution) => {
++        reviewEnabled = true;
++        review.mockResolvedValueOnce(
++          resolution as unknown as ApprovalReviewResult,
++        );
++        const broker = useBroker(async () => ({ decision: 'approved' }));
++        const result = await make().requestToolApproval(
++          makeContext('Bash'),
++          ask(),
++          'fallback-ask',
++        );
++        expect(result?.veto).toMatchObject({
++          isError: true,
++          stopTurn: true,
++          output: expect.stringContaining('failed to produce'),
++        });
++        expect(broker).not.toHaveBeenCalled();
++      },
++    );
++
++    it('blocks an unexpected reviewer failure and preserves user cancellation', async () => {
++      reviewEnabled = true;
++      const broker = useBroker(async () => ({ decision: 'approved' }));
++      review.mockRejectedValueOnce(new Error('Unexpected runtime failure'));
++      expect(
++        (
++          await make().requestToolApproval(
++            makeContext('Bash'),
++            ask(),
++            'fallback-ask',
++          )
++        )?.veto,
++      ).toMatchObject({ isError: true, stopTurn: true });
++      review.mockRejectedValueOnce(new UserCancellationError());
++      await expect(
++        make().requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
++      ).rejects.toBeInstanceOf(UserCancellationError);
++      expect(broker).not.toHaveBeenCalled();
++    });
++
++    it.each([
++      {
++        tool: 'ExitPlanMode',
++        origin: 'exit-plan-mode-review-ask',
++        display: {
++          kind: 'plan_review',
++          plan: 'A plan with alternatives.',
++        } as ToolInputDisplay,
++      },
++      {
++        tool: 'CreateGoal',
++        origin: 'goal-start-review-ask',
++        display: {
++          kind: 'goal_start',
++          objective: 'A requested goal.',
++          mode: 'manual',
++        } as ToolInputDisplay,
++      },
++    ])(
++      'preserves the existing $tool business interaction',
++      async ({ tool, origin, display }) => {
++        reviewEnabled = true;
++        const callback = vi.fn(() => ({ kind: 'approve' as const }));
++        const broker = useBroker(async () => ({ decision: 'approved' }));
++        await make().requestToolApproval(
++          makeContext(tool, {}, { display }),
++          ask({ resolveApproval: callback }),
++          origin,
++        );
++        expect(broker).toHaveBeenCalledOnce();
++        expect(callback).toHaveBeenCalledOnce();
++        expect(review).not.toHaveBeenCalled();
++      },
++    );
++
++    it('does not exempt a permission ask merely because the tool has a plan display', async () => {
++      reviewEnabled = true;
++      review.mockResolvedValueOnce({
++        kind: 'deny',
++        message: 'Explicit ask rule.',
++      });
++      const broker = useBroker(async () => ({ decision: 'approved' }));
++      const result = await make().requestToolApproval(
++        makeContext(
++          'ExitPlanMode',
++          {},
++          { display: { kind: 'plan_review', plan: 'A plan.' } },
++        ),
++        ask({ resolveApproval: () => ({ kind: 'approve' }) }),
++        'user-configured-ask',
++      );
++      expect(result?.veto?.isError).toBe(true);
++      expect(broker).not.toHaveBeenCalled();
++    });
++
++    it('retains normal approval when auto-review is off', async () => {
++      const broker = useBroker(async () => ({ decision: 'rejected' }));
++      await make().requestToolApproval(
++        makeContext('Write'),
++        ask(),
++        'fallback-ask',
++      );
++      expect(broker).toHaveBeenCalledOnce();
++      expect(review).not.toHaveBeenCalled();
++    });
++  });
++
+   describe('resolvePermissionResolution', () => {
+     it('maps an approve without metadata to undefined', async () => {
+       const svc = make();
+       await expect(
+-        svc.resolvePermissionResolution({ kind: 'approve' }, makeContext('Bash'), 'p'),
++        svc.resolvePermissionResolution(
++          { kind: 'approve' },
++          makeContext('Bash'),
++          'p',
++        ),
+       ).resolves.toBeUndefined();
+     });
+ 
+@@ -225,9 +421,16 @@ describe('AgentToolApprovalService', () => {
+     it('uses a default reason when a deny has no message', async () => {
+       const svc = make();
+       await expect(
+-        svc.resolvePermissionResolution({ kind: 'deny' }, makeContext('Bash'), 'p'),
++        svc.resolvePermissionResolution(
++          { kind: 'deny' },
++          makeContext('Bash'),
++          'p',
++        ),
+       ).resolves.toEqual({
+-        veto: { output: 'Tool "Bash" was denied by permission policy.', isError: true },
++        veto: {
++          output: 'Tool "Bash" was denied by permission policy.',
++          isError: true,
++        },
+       });
+     });
+ 
+@@ -272,7 +475,11 @@ describe('AgentToolApprovalService', () => {
+       const svc = make();
+ 
+       await expect(
+-        svc.requestToolApproval(makeContext('Bash', { command: 'printf first' }), ask(), 'fallback-ask'),
++        svc.requestToolApproval(
++          makeContext('Bash', { command: 'printf first' }),
++          ask(),
++          'fallback-ask',
++        ),
+       ).resolves.toBeUndefined();
+ 
+       expect(request).toHaveBeenCalledTimes(1);
+@@ -319,7 +526,10 @@ describe('AgentToolApprovalService', () => {
+     it('uses the execution description and display when provided', async () => {
+       const request = useBroker(async () => ({ decision: 'approved' }));
+       const svc = make();
+-      const display: ToolInputDisplay = { kind: 'command', command: 'rm -rf build' };
++      const display: ToolInputDisplay = {
++        kind: 'command',
++        command: 'rm -rf build',
++      };
+ 
+       await svc.requestToolApproval(
+         makeContext(
+@@ -352,7 +562,9 @@ describe('AgentToolApprovalService', () => {
+ 
+       const brokerId = request.mock.calls[0]![0].id;
+       expect(brokerId).toMatch(/^approval_/);
+-      expect(events.requested.mock.calls[0]![0]).toMatchObject({ id: brokerId });
++      expect(events.requested.mock.calls[0]![0]).toMatchObject({
++        id: brokerId,
++      });
+       expect(events.resolved.mock.calls[0]![0]).toMatchObject({ id: brokerId });
+     });
+ 
+@@ -365,7 +577,11 @@ describe('AgentToolApprovalService', () => {
+       const svc = make();
+ 
+       await expect(
+-        svc.requestToolApproval(makeContext('Custom', { query: 'first' }), ask(), 'fallback-ask'),
++        svc.requestToolApproval(
++          makeContext('Custom', { query: 'first' }),
++          ask(),
++          'fallback-ask',
++        ),
+       ).resolves.toBeUndefined();
+ 
+       expect(recorded).toHaveLength(1);
+@@ -391,7 +607,11 @@ describe('AgentToolApprovalService', () => {
+       useBroker(async () => ({ decision: 'approved' }));
+       const svc = make();
+ 
+-      await svc.requestToolApproval(makeContext('Custom'), ask(), 'fallback-ask');
++      await svc.requestToolApproval(
++        makeContext('Custom'),
++        ask(),
++        'fallback-ask',
++      );
+ 
+       expect(recorded).toHaveLength(1);
+       expect(recorded[0]).toMatchObject({
+@@ -415,7 +635,8 @@ describe('AgentToolApprovalService', () => {
+         svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
+       ).resolves.toEqual({
+         veto: {
+-          output: 'Tool "Bash" was not run because the user rejected the approval request.',
++          output:
++            'Tool "Bash" was not run because the user rejected the approval request.',
+           isError: true,
+         },
+       });
+@@ -439,7 +660,10 @@ describe('AgentToolApprovalService', () => {
+     });
+ 
+     it('tracks cancelled approval requests', async () => {
+-      useBroker(async () => ({ decision: 'cancelled', feedback: 'request closed' }));
++      useBroker(async () => ({
++        decision: 'cancelled',
++        feedback: 'request closed',
++      }));
+       const svc = make();
+ 
+       await expect(
+@@ -469,7 +693,11 @@ describe('AgentToolApprovalService', () => {
+       ['cancelled', { decision: 'cancelled' }, 'cancelled', false],
+       [
+         'revise feedback',
+-        { decision: 'rejected', selectedLabel: 'Revise', feedback: 'Add verification.' },
++        {
++          decision: 'rejected',
++          selectedLabel: 'Revise',
++          feedback: 'Add verification.',
++        },
+         'rejected',
+         true,
+       ],
+@@ -527,7 +755,9 @@ describe('AgentToolApprovalService', () => {
+         ask(),
+         'exit-plan-mode-review-ask',
+       );
+-      const expectation = expect(promise).rejects.toThrow('approval transport closed');
++      const expectation = expect(promise).rejects.toThrow(
++        'approval transport closed',
++      );
+       controller.abort(error);
+       await expectation;
+ 
+@@ -555,7 +785,9 @@ describe('AgentToolApprovalService', () => {
+ 
+       const promise = svc.requestToolApproval(
+         makeContext('ExitPlanMode', {}, { signal: controller.signal }),
+-        ask({ resolveError: () => ({ kind: 'deny', message: 'review unavailable' }) }),
++        ask({
++          resolveError: () => ({ kind: 'deny', message: 'review unavailable' }),
++        }),
+         'exit-plan-mode-review-ask',
+       );
+       controller.abort(new Error('approval transport closed'));
+@@ -576,7 +808,9 @@ describe('AgentToolApprovalService', () => {
+         ask(),
+         'fallback-ask',
+       );
+-      const expectation = expect(promise).rejects.toBeInstanceOf(UserCancellationError);
++      const expectation = expect(promise).rejects.toBeInstanceOf(
++        UserCancellationError,
++      );
+       controller.abort(new UserCancellationError());
+       await expectation;
+ 
+@@ -633,7 +867,9 @@ describe('AgentToolApprovalService', () => {
+ 
+     it('uses the cancelled prefix for cancellations', () => {
+       const svc = make();
+-      expect(svc.formatApprovalRejectionMessage('Bash', { decision: 'cancelled' })).toBe(
++      expect(
++        svc.formatApprovalRejectionMessage('Bash', { decision: 'cancelled' }),
++      ).toBe(
+         'Tool "Bash" was not run because the approval request was cancelled.',
+       );
+     });
+diff --git a/packages/node-sdk/src/config/schema.ts b/packages/node-sdk/src/config/schema.ts
+index b149791..5e25471 100644
+--- a/packages/node-sdk/src/config/schema.ts
++++ b/packages/node-sdk/src/config/schema.ts
+@@ -137,6 +137,17 @@ export const PermissionRuleSchema = z.object({
+ 
+ export const PermissionConfigSchema = z.object({
+   rules: z.array(PermissionRuleSchema).optional(),
++  dangerousCommandGuard: z.boolean().optional(),
++  review: z
++    .object({
++      model: z.string().min(1).optional(),
++      timeoutMs: z.number().int().min(1000).max(120000).default(30000),
++      maxContextChars: z.number().int().min(4000).max(100000).default(24000),
++      twoStage: z.boolean().default(true),
++      policy: z.string().max(8000).optional(),
++    })
++    .strict()
++    .optional(),
+ });
+ 
+ export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
+diff --git a/packages/node-sdk/src/config/toml.ts b/packages/node-sdk/src/config/toml.ts
+index 71c8eac..8727669 100644
+--- a/packages/node-sdk/src/config/toml.ts
++++ b/packages/node-sdk/src/config/toml.ts
+@@ -343,6 +343,13 @@ function transformModelData(data: Record<string, unknown>): Record<string, unkno
+ function transformPermissionData(data: Record<string, unknown>): Record<string, unknown> {
+   const raw = transformPlainObject(data);
+   const out: Record<string, unknown> = {};
++  if (raw['review'] !== undefined) {
++    out['review'] = isPlainObject(raw['review'])
++      ? transformPlainObject(raw['review']) : raw['review'];
++  }
++  if (raw['dangerousCommandGuard'] !== undefined) {
++    out['dangerousCommandGuard'] = raw['dangerousCommandGuard'];
++  }
+ 
+   const rules: unknown[] = [];
+   appendPermissionRules(rules, raw['rules']);
+@@ -581,6 +588,15 @@ function permissionToToml(
+   delete out['allow'];
+   delete out['ask'];
+ 
++  if (permission.review !== undefined) {
++    out['review'] = Object.fromEntries(
++      Object.entries(permission.review).map(([key, value]) => [camelToSnake(key), value]),
++    );
++  } else {
++    delete out['review'];
++  }
++  setDefined(out, 'dangerous_command_guard', permission.dangerousCommandGuard);
++
+   if (permission.rules !== undefined) {
+     out['rules'] = permission.rules.map(permissionRuleToToml);
+   } else {
+diff --git a/packages/node-sdk/test/config.test.ts b/packages/node-sdk/test/config.test.ts
+index d73de48..5a7531d 100644
+--- a/packages/node-sdk/test/config.test.ts
++++ b/packages/node-sdk/test/config.test.ts
+@@ -24,6 +24,22 @@ async function makeTempDir(): Promise<string> {
+ }
+ 
+ describe('SDK config TOML', () => {
++  it('preserves reviewer settings and the dangerous-command guard across TOML round trips', () => {
++    const config = parseConfigString(`
++[permission]
++dangerous_command_guard = true
++[permission.review]
++model = "provider/reviewer"
++timeout_ms = 45000
++max_context_chars = 16000
++two_stage = false
++policy = "Keep production changes manual."
++[experimental]
++approval_review = true
++`);
++    expect(config.permission?.review).toEqual({ model: 'provider/reviewer', timeoutMs: 45000, maxContextChars: 16000, twoStage: false, policy: 'Keep production changes manual.' });
++    expect(configToTomlData(config)).toMatchObject({ permission: { dangerous_command_guard: true, review: { model: 'provider/reviewer', timeout_ms: 45000, max_context_chars: 16000, two_stage: false } }, experimental: { approval_review: true } });
++  });
+   it('resolves config paths through the config RPC wrapper', async () => {
+     const dir = await makeTempDir();
+     const rpc = createKimiConfigRpc();
+diff --git a/packages/node-sdk/test/session-prompt-events.test.ts b/packages/node-sdk/test/session-prompt-events.test.ts
+index 56be2d4..ca482dd 100644
+--- a/packages/node-sdk/test/session-prompt-events.test.ts
++++ b/packages/node-sdk/test/session-prompt-events.test.ts
+@@ -41,6 +41,7 @@ let fetchStub: ReturnType<typeof vi.spyOn> | undefined;
+ const tempDirs: string[] = [];
+ 
+ beforeEach(() => {
++  vi.stubEnv('KIMI_CODE_WATCH', 'false');
+   fakeProviderState.calls.length = 0;
+   fakeProviderState.responseText = 'hello from fake provider';
+   fetchStub = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+@@ -96,6 +97,162 @@ async function removeTempDir(dir: string): Promise<void> {
+ }
+ 
+ describe('Session.prompt events', () => {
++  it.each([
++    'allow',
++    'deny',
++    'ask',
++    'invalid',
++    'hard-deny',
++    'explicit-ask',
++    'repeated-deny',
++    'repeated-invalid',
++  ] as const)(
++    'enforces model approval review through the real engine: %s',
++    async (scenario) => {
++      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
++      const homeDir = await makeTempDir();
++      const workDir = await makeTempDir();
++      let mainCalls = 0;
++      let reviewCalls = 0;
++      const reviewBodies: unknown[] = [];
++      fetchStub!.mockImplementation(
++        async (
++          _input: Parameters<typeof fetch>[0],
++          init: Parameters<typeof fetch>[1],
++        ) => {
++          const body = JSON.parse(
++            typeof init?.body === 'string' ? init.body : '{}',
++          ) as {
++            messages?: Array<{ role: string; content: unknown }>;
++            tools?: unknown[];
++          };
++          const system = body.messages?.find(
++            (message) => message.role === 'system',
++          )?.content;
++          let response: string;
++          if (
++            typeof system === 'string' &&
++            system.includes('independent permission reviewer')
++          ) {
++            reviewCalls++;
++            reviewBodies.push(body);
++            response = sseBody(
++              scenario === 'invalid' || scenario === 'repeated-invalid'
++                ? 'invalid decision'
++                : JSON.stringify({
++                    decision: scenario === 'repeated-deny' ? 'deny' : scenario,
++                    risk:
++                      scenario === 'deny' || scenario === 'repeated-deny'
++                        ? 'high'
++                        : 'low',
++                    authorization: 'high',
++                    reason: 'Synthetic approval integration test.',
++                  }),
++            );
++          } else if (
++            mainCalls++ === 0 ||
++            ((scenario === 'repeated-deny' ||
++              scenario === 'repeated-invalid') &&
++              mainCalls <= 4)
++          ) {
++            response = [
++              sseChunk({
++                role: 'assistant',
++                tool_calls: [
++                  {
++                    index: 0,
++                    id: `review-write-${mainCalls}`,
++                    type: 'function',
++                    function: {
++                      name: 'Write',
++                      arguments: JSON.stringify({
++                        path: 'review-result.txt',
++                        content: 'reviewed',
++                      }),
++                    },
++                  },
++                ],
++              }),
++              sseChunk({}, 'tool_calls'),
++              'data: [DONE]',
++            ]
++              .map((line) => `${line}\n\n`)
++              .join('');
++          } else {
++            response = sseBody('Finished the test.');
++          }
++          return new Response(response, {
++            status: 200,
++            headers: { 'Content-Type': 'text/event-stream' },
++          });
++        },
++      );
++      const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
++      try {
++        await configureFakeProvider(harness);
++        await harness.setConfig({
++          autoSessionTitle: false,
++          experimental: { approval_review: true },
++          permission: {
++            rules:
++              scenario === 'hard-deny'
++                ? [{ decision: 'deny', scope: 'user', pattern: 'Write' }]
++                : scenario === 'explicit-ask'
++                  ? [{ decision: 'ask', scope: 'user', pattern: 'Write' }]
++                  : [],
++          },
++        });
++        const session = await harness.createSession({
++          id: `ses_model_review_${scenario}`,
++          workDir,
++          permission: 'manual',
++        });
++        const manual = vi.fn(() => ({ decision: 'rejected' as const }));
++        session.setApprovalHandler(manual);
++        const events: Event[] = [];
++        session.onEvent((event) => events.push(event));
++        const done = waitForEvent(
++          session,
++          (event) => event.type === 'turn.ended',
++        );
++        await session.prompt(
++          'Create review-result.txt containing reviewed in this workspace.',
++        );
++        expect(await done).toMatchObject({ reason: 'completed' });
++        expect(manual).not.toHaveBeenCalled();
++        expect(reviewCalls).toBe(
++          scenario === 'hard-deny' || scenario === 'explicit-ask'
++            ? 0
++            : scenario === 'repeated-deny'
++              ? 6
++              : scenario === 'deny' ||
++                  scenario === 'ask' ||
++                  scenario === 'repeated-invalid'
++                ? 2
++                : 1,
++        );
++        if (scenario === 'repeated-deny' || scenario === 'repeated-invalid') {
++          expect(mainCalls).toBe(scenario === 'repeated-deny' ? 3 : 2);
++        }
++        if (scenario === 'allow') {
++          expect(
++            await readFile(join(workDir, 'review-result.txt'), 'utf8'),
++          ).toBe('reviewed');
++        } else {
++          await expect(
++            readFile(join(workDir, 'review-result.txt'), 'utf8'),
++          ).rejects.toMatchObject({ code: 'ENOENT' });
++        }
++        for (const body of reviewBodies)
++          expect(body).not.toHaveProperty('tools.0');
++        expect(events.some((event) => event.type === 'tool.result')).toBe(true);
++      } finally {
++        await harness.close();
++        vi.unstubAllEnvs();
++      }
++    },
++  );
++
+   it('continues notifying sessions after disabling and restarting with identical prompt and tools', async () => {
+     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '');

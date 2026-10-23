@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/MoonshotAI/kimi-code.git",
+  "tag": "@moonshot-ai/kimi-code@2.3.0",
+  "commit": "b5e28fd6beac752a2cdcc0ff2f5fdf40e6494fbb",
+  "version": "2.3.0",
+  "node": "24.15.0",
+  "pnpm": "10.33.0",
+  "patches": ["patches/native-review.patch"]
+}
