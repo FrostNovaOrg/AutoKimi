@@ -8,7 +8,7 @@
 
 ## 安装
 
-已在 macOS 上验证；Linux 安装器和 CI 有自动化覆盖，完整交互尚未验证。需要 Node.js ≥24.15.0、Git、pnpm **10.33.0**，以及已配置的 Kimi 账号或模型。首次构建会下载官方源码和依赖，构建目录可能占用数 GB。
+已在 macOS 上验证；安装器面向 macOS/Linux，Linux 尚未实测。需要 Node.js ≥24.15.0、Git、pnpm **10.33.0**，以及已配置的 Kimi 账号或模型。首次构建会下载官方源码和依赖，构建目录可能占用数 GB。
 
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
