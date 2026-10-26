@@ -3,8 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { projectRoot, sha256 } from './common.mjs';
+import { parseArgs } from 'node:util';
+import { projectRoot, readUpstreamLock, sha256 } from './common.mjs';
 import { install, preparePackage } from './install.mjs';
+
+const { values } = parseArgs({
+  options: { lock: { type: 'string' }, source: { type: 'string' } },
+});
+const lock = await readUpstreamLock(projectRoot, values.lock);
 
 process.env.KIMI_CODE_WATCH = 'false';
 process.env.KIMI_DISABLE_TELEMETRY = '1';
@@ -35,15 +41,36 @@ two_stage = true
 policy = "preserve this fixture policy"
 `,
   );
-  const packagePath = await preparePackage(join(root, 'runtime'));
+  const packagePath = await preparePackage(join(root, 'runtime'), values.source, {
+    lock,
+  });
   const first = await install({
     package: packagePath,
     home,
+    lock,
     'timeout-ms': '90000',
   });
   assert.equal(
     execFileSync(first.launcher, ['--version'], { encoding: 'utf8' }).trim(),
-    '2.3.0',
+    lock.version,
+  );
+  assert.match(
+    execFileSync(first.launcher, ['update', '--help'], {
+      encoding: 'utf8',
+    }),
+    /Without --install/,
+  );
+  assert.match(
+    execFileSync(first.launcher, ['upgrade', '--help'], {
+      encoding: 'utf8',
+    }),
+    /autokimi upgrade/,
+  );
+  assert.match(
+    execFileSync(first.launcher, ['upgrade', '--help'], {
+      encoding: 'utf8',
+    }),
+    /validates AutoKimi first/,
   );
   const { createKimiHarness } = await import(
     pathToFileURL(join(first.distribution, 'config-sdk', 'index.mjs')).href
@@ -76,7 +103,7 @@ policy = "preserve this fixture policy"
   } finally {
     await harness.close();
   }
-  const second = await install({ package: packagePath, home });
+  const second = await install({ package: packagePath, home, lock });
   assert.equal(second.distribution, first.distribution);
   assert.equal(
     sha256(await readFile(join(home, 'bin', 'kimi'))),

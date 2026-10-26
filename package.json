@@ -9,6 +9,7 @@
   },
   "scripts": {
     "prepare:upstream": "node tools/prepare.mjs",
+    "follow:upstream": "node tools/follow-upstream.mjs",
     "build": "node tools/build.mjs",
     "test": "node --test test/*.test.mjs",
     "test:upstream": "node tools/test-upstream.mjs",
@@ -20,5 +21,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/FrostNovaOrg/AutoKimi.git"
+  },
+  "dependencies": {
+    "@moonshot-ai/kimi-code": "^2.3.2"
   }
 }

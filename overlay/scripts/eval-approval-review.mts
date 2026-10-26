@@ -7,6 +7,7 @@ import {
   addUsage,
   bootstrap,
   createAssistantMessage,
+  createToolMessage,
   createUserMessage,
   emptyUsage,
   extractText,
@@ -37,6 +38,16 @@ interface EvalCase {
   agentId?: string;
   delegatedRequest?: string;
   explicitAsk?: boolean;
+  readResults?: Array<{
+    path: string;
+    content: string;
+    incomplete?: boolean;
+  }>;
+  verificationResults?: Array<{
+    command: string;
+    output: string;
+    failed?: boolean;
+  }>;
 }
 
 const { values } = parseArgs({
@@ -58,7 +69,12 @@ const homeDir = resolve(values.home);
 const out = resolve(values.out);
 const concurrency = Math.max(1, Math.min(4, Number(values.concurrency)));
 const timeoutMs = Number(values['timeout-ms']);
-if (!Number.isFinite(concurrency) || timeoutMs < 1000 || timeoutMs > 120000)
+if (
+  !Number.isInteger(concurrency) ||
+  !Number.isInteger(timeoutMs) ||
+  timeoutMs < 1000 ||
+  timeoutMs > 120000
+)
   throw new Error('Invalid concurrency or timeout');
 await mkdir(out, { recursive: true });
 const datasetText = await readFile(
@@ -102,7 +118,7 @@ const { app } = bootstrap(
       requestHeaders: createKimiDefaultHeaders({ homeDir, ...identity }),
     },
   },
-  logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
+  logSeed(resolveLoggingConfig({ homeDir: out, env: process.env })),
 );
 const startedAt = new Date().toISOString();
 const results: Record<string, unknown>[] = [];
@@ -153,6 +169,46 @@ try {
     const stages: Array<Record<string, unknown>> = [];
     let usage = emptyUsage();
     const memory: ContextMessage[] = [human(c.request)];
+    for (const [index, read] of (c.readResults ?? []).entries()) {
+      const id = `read-${c.id}-${repeat}-${index}`;
+      memory.push(
+        createAssistantMessage(
+          [],
+          [
+            {
+              type: 'function',
+              id,
+              name: 'Read',
+              arguments: JSON.stringify({
+                path: read.path,
+                n_lines: read.incomplete ? 20 : undefined,
+              }),
+            },
+          ],
+        ),
+        createToolMessage(id, read.content),
+      );
+    }
+    for (const [index, result] of (c.verificationResults ?? []).entries()) {
+      const id = `verification-${c.id}-${repeat}-${index}`;
+      memory.push(
+        createAssistantMessage(
+          [],
+          [
+            {
+              type: 'function',
+              id,
+              name: 'Bash',
+              arguments: JSON.stringify({ command: result.command }),
+            },
+          ],
+        ),
+        {
+          ...createToolMessage(id, result.output),
+          isError: result.failed,
+        },
+      );
+    }
     if (c.assistantClaim !== undefined)
       memory.push(
         createAssistantMessage([{ type: 'text', text: c.assistantClaim }]),
@@ -204,11 +260,11 @@ try {
       },
     };
     const ports = [
-      { enabled: () => true },
+      { enabled: () => true, explain: () => undefined },
       {
         get: (key: string) =>
           key === 'permission'
-            ? { review: { timeoutMs, maxContextChars: 24000, twoStage: true } }
+            ? { review: { timeoutMs, maxContextChars: 60000, twoStage: true } }
             : config.get(key),
       },
       { homeDir },
@@ -243,6 +299,7 @@ try {
       },
       { dispatch: async () => {} },
       { warn: () => {} },
+      { snapshot: () => ({ custom: {} }) },
     ] as unknown as ConstructorParameters<typeof AgentApprovalReviewService>;
     const service = new AgentApprovalReviewService(...ports);
     const context: ResolvedToolExecutionHookContext = {

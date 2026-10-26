@@ -144,3 +144,44 @@ test('invalid patches leave upstream and destination untouched', async (t) => {
   );
   assert.deepEqual(await readdir(join(options.root, '.cache')), []);
 });
+
+test('uses an independent candidate lock without mixing the baseline cache', async (t) => {
+  const options = await fixture(t);
+  const baseline = JSON.parse(
+    await readFile(join(options.root, 'upstream.lock.json'), 'utf8'),
+  );
+  await writeFile(
+    join(options.source, 'apps', 'kimi-code', 'package.json'),
+    '{"version":"2.4.0"}\n',
+  );
+  options.git('add', 'apps/kimi-code/package.json');
+  options.git(
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '-m',
+    'candidate',
+  );
+  const candidate = {
+    ...baseline,
+    tag: '@moonshot-ai/kimi-code@2.4.0',
+    version: '2.4.0',
+    commit: options.git('rev-parse', 'HEAD'),
+  };
+  await prepareSource({ ...options, lock: candidate });
+  const manifest = JSON.parse(
+    await readFile(
+      join(options.worktree, 'apps', 'kimi-code', 'package.json'),
+      'utf8',
+    ),
+  );
+  assert.equal(manifest.version, '2.4.0');
+  assert.equal(await prepareSource({ ...options, lock: candidate }), options.worktree);
+  await assert.rejects(prepareSource(options), /HEAD changed/);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(options.root, 'upstream.lock.json'), 'utf8')),
+    baseline,
+  );
+});

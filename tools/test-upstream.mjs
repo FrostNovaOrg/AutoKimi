@@ -1,11 +1,19 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { pnpmEnvironment, projectRoot, run } from './common.mjs';
+import {
+  pnpmEnvironment,
+  projectRoot,
+  readUpstreamLock,
+  run,
+} from './common.mjs';
 import { prepareSource } from './prepare.mjs';
 
-const { values } = parseArgs({ options: { worktree: { type: 'string' } } });
-const worktree = await prepareSource(values);
+const { values } = parseArgs({
+  options: { worktree: { type: 'string' }, lock: { type: 'string' } },
+});
+const lock = await readUpstreamLock(projectRoot, values.lock);
+const worktree = await prepareSource({ ...values, lock });
 const { command, env } = pnpmEnvironment();
 const home = join(projectRoot, '.artifacts', 'test-home');
 await mkdir(home, { recursive: true });
@@ -27,11 +35,13 @@ run(
     'vitest',
     'run',
     'packages/agent-core-v2/test/agent/approvalReview',
+    'packages/agent-core-v2/test/agent/questionTools/tools/ask-user.test.ts',
     'packages/agent-core-v2/test/agent/toolApproval',
     'packages/agent-core-v2/test/agent/permissionGate',
     'packages/agent-core-v2/test/agent/permissionPolicy',
     'packages/agent-core-v2/test/agent/permissionRules',
     'packages/node-sdk/test/config.test.ts',
+    'packages/node-sdk/test/review-config.test.ts',
     'packages/node-sdk/test/session-prompt-events.test.ts',
     'apps/kimi-code/test/tui/commands/review.test.ts',
     'apps/kimi-code/test/tui/commands/resolve.test.ts',
@@ -40,10 +50,23 @@ run(
   ],
   options,
 );
+run(
+  command,
+  [
+    'exec',
+    'vitest',
+    'run',
+    'apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts',
+    '-t',
+    'approval review|review denial|structured review',
+  ],
+  options,
+);
 for (const packageName of [
   'packages/agent-core-v2',
   'packages/node-sdk',
   'apps/kimi-code',
+  'scripts',
 ])
   run(
     command,

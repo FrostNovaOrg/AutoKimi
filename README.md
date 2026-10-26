@@ -2,7 +2,7 @@
 
 为 Kimi Code 原生 TUI 增加模型权限审核。保留官方 `kimi` 命令，使用独立的 `autokimi` 启动带审核功能的运行时。
 
-当工具操作进入待审批状态时，审核器依据用户授权和具体操作返回 **通过或拒绝**。不确定、超时或审核失败均拒绝，并说明原因；不会转交人工批准。连续拒绝或失败会停止当前轮次。
+当工具操作进入待审批状态时，审核器依据用户授权和具体操作返回 **通过或拒绝**。不确定、超时或审核失败均拒绝，并说明原因；不会转交人工批准。可恢复的模型服务错误会自动退避重试，连续工具级基础设施故障进入短暂冷却；只有连续或累计的安全拒绝会停止当前轮次。
 
 这是基于官方源码的轻量补丁项目。当前固定 Kimi Code **2.3.0**，使用已有 Kimi 登录、provider 和模型配置。它通过引擎权限入口和 SDK 接入原生 TUI，需要独立的 JavaScript 运行时；启动脚本负责选择该运行时。
 
@@ -26,8 +26,12 @@ npm run install:local -- --timeout-ms 90000
 /auto-review status
 /auto-review on
 /auto-review model <已配置的模型别名>
+/auto-review denials
+/approval
 /auto-review off
 ```
+
+`/approval`（别名 `/approve`）列出可授权命令，Enter 将选中项从 ✗ 变为 ✓ 并发送一次授权，再按 Enter 或 Esc 关闭。`denials` 用于诊断，显式 ID 仍兼容。工具、完整参数和 cwd 必须不变且须复审；不生成永久 allow 规则。compaction、undo、session reset 或重启后旧授权失效。
 
 **官方 `/auto` 是 Never Ask 模式，会暂停分类器。** 使用 AutoKimi 时保持 Always Ask；`/auto-review on` 会切回该模式。审核开启状态会显示在底栏。
 
@@ -53,6 +57,8 @@ npm run install:local -- --timeout-ms 90000
 - [超时与常见问题](docs/troubleshooting.md)
 - [验证范围与已知限制](docs/verification.md)
 
-AutoKimi 不会随官方 `kimi` 自动升级。升级需显式更新锁定版本、移植补丁并重新验证。模型审核会产生额外请求和费用，也可能误拒绝或误放行；它不是操作系统沙箱。参见[验证范围](docs/verification.md)。
+官方 `kimi` 更新不会自动改变已安装的 AutoKimi，日常构建仍固定 **2.3.0**。维护者可显式运行 `npm run follow:upstream -- --version 2.3.1` 验证候选，或在安装后使用 `autokimi update`；`update` 默认只验证并生成候选，只有显式 `--install` 才安装。`autokimi upgrade` 用于一键更新：先验证 AutoKimi 候选，官方较旧时执行官方升级并复读版本，再安装 AutoKimi 或刷新安装回执。没有后台更新；失败或部分成功会写入报告，旧 AutoKimi release 会保留。
+
+模型审核会产生额外请求和费用，也可能误拒绝或误放行；它不是操作系统沙箱。参见[验证范围](docs/verification.md)。
 
 基于 Moonshot AI 的 MIT 许可源码，保留其版权声明。详见 [LICENSE](LICENSE)、[LICENSE.upstream](LICENSE.upstream) 和 [NOTICE](NOTICE)。

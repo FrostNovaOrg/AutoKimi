@@ -17,7 +17,7 @@ export const ApprovalReviewConfigSchema = z
   .object({
     model: z.string().min(1).optional(),
     timeoutMs: z.number().int().min(1000).max(120000).default(30000),
-    maxContextChars: z.number().int().min(4000).max(100000).default(24000),
+    maxContextChars: z.number().int().min(4000).max(100000).default(60000),
     twoStage: z.boolean().default(true),
     policy: z.string().max(8000).optional(),
   })

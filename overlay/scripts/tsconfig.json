@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [
+    "./*.mts",
+    "../packages/agent-core-v2/src/env.d.ts"
+  ]
+}

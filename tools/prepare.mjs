@@ -16,6 +16,7 @@ import {
   isMain,
   projectRoot,
   readJson,
+  readUpstreamLock,
   run,
   sha256,
 } from './common.mjs';
@@ -40,13 +41,7 @@ async function sourceState(worktree) {
   return sha256(content.join('\0'));
 }
 
-export async function prepareSource(options = {}) {
-  const root = resolve(options.root || projectRoot);
-  const worktree = resolve(
-    options.worktree || join(root, '.cache', 'kimi-code'),
-  );
-  const lock = await readJson(join(root, 'upstream.lock.json'));
-  assert.match(lock.commit, /^[a-f0-9]{40}$/);
+async function sourceInputs(root, lock) {
   const overlay = join(root, 'overlay');
   const files = await filesUnder(overlay);
   const inputs = [JSON.stringify(lock)];
@@ -56,33 +51,50 @@ export async function prepareSource(options = {}) {
   }
   for (const path of files)
     inputs.push(path, sha256(await readFile(join(overlay, path))));
-  const inputHash = sha256(inputs.join('\0'));
+  return { inputHash: sha256(inputs.join('\0')), files };
+}
+
+export async function verifyPreparedSource(options = {}) {
+  const root = resolve(options.root || projectRoot);
+  const worktree = resolve(
+    options.worktree || join(root, '.cache', 'kimi-code'),
+  );
+  const lock = await readUpstreamLock(root, options.lock);
+  const marker = await readJson(
+    join(worktree, '.autokimi-source.json'),
+  ).catch(() => undefined);
+  assert.ok(
+    marker,
+    'Existing destination is not an AutoKimi worktree. Choose a new --worktree.',
+  );
+  assert.equal(
+    git(worktree, ['rev-parse', 'HEAD']),
+    lock.commit,
+    'Cached upstream HEAD changed.',
+  );
+  assert.equal(
+    await sourceState(worktree),
+    marker.sourceState,
+    'Cached sources have local edits; preserve them before recreating the cache.',
+  );
+  assert.equal(
+    marker.inputHash,
+    (await sourceInputs(root, lock)).inputHash,
+    'Overlay changed. Preserve any cache edits, then remove .cache/kimi-code and prepare again.',
+  );
+  return worktree;
+}
+
+export async function prepareSource(options = {}) {
+  const root = resolve(options.root || projectRoot);
+  const worktree = resolve(
+    options.worktree || join(root, '.cache', 'kimi-code'),
+  );
+  const lock = await readUpstreamLock(root, options.lock);
+  const { inputHash, files } = await sourceInputs(root, lock);
   const markerName = '.autokimi-source.json';
-  if (existsSync(worktree)) {
-    const marker = await readJson(join(worktree, markerName)).catch(
-      () => undefined,
-    );
-    assert.ok(
-      marker,
-      'Existing destination is not an AutoKimi worktree. Choose a new --worktree.',
-    );
-    assert.equal(
-      git(worktree, ['rev-parse', 'HEAD']),
-      lock.commit,
-      'Cached upstream HEAD changed.',
-    );
-    assert.equal(
-      await sourceState(worktree),
-      marker.sourceState,
-      'Cached sources have local edits; preserve them before recreating the cache.',
-    );
-    assert.equal(
-      marker.inputHash,
-      inputHash,
-      'Overlay changed. Preserve any cache edits, then remove .cache/kimi-code and prepare again.',
-    );
-    return worktree;
-  }
+  if (existsSync(worktree))
+    return verifyPreparedSource({ root, worktree, lock });
   const staging = worktree + '.prepare-' + randomUUID();
   await mkdir(dirname(worktree), { recursive: true });
   try {
@@ -132,7 +144,7 @@ export async function prepareSource(options = {}) {
         'Overlay would overwrite an existing file; use a patch: ' + path,
       );
       await mkdir(dirname(destination), { recursive: true });
-      await copyFile(join(overlay, path), destination);
+      await copyFile(join(root, 'overlay', path), destination);
     }
     await writeFile(
       join(staging, '.git', 'info', 'exclude'),

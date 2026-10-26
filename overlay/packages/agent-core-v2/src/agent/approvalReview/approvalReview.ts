@@ -13,6 +13,7 @@ export type ApprovalReviewResult =
 export interface IAgentApprovalReviewService {
   readonly _serviceBrand: undefined;
   isEnabled(): boolean;
+  consumeApprovedInteraction(interactionId: string): void;
   review(
     context: ResolvedToolExecutionHookContext,
     result: Extract<PermissionPolicyResult, { kind: 'ask' }>,
