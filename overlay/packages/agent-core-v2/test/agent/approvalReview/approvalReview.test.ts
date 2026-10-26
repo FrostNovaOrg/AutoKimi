@@ -982,26 +982,30 @@ describe('AgentApprovalReviewService', () => {
     toolCallId: string;
     fingerprint: string;
   }> {
+    const seen = new Set<string>();
     return (t.dispatch.mock.calls as unknown[][]).flatMap(([event]) => {
       const data = (event as { update: { customData?: unknown } }).update
         .customData;
       if (data === undefined) return [];
       expect(data).toMatchObject({
-        kind: 'one_time_approval_denial',
+        kind: 'one_time_approval_state',
         version: 1,
       });
-      const grant = data as {
-        challenge: string;
-        toolCallId: string;
-        fingerprint: string;
-      };
-      return [
-        {
-          challenge: grant.challenge,
-          toolCallId: grant.toolCallId,
-          fingerprint: grant.fingerprint,
-        },
-      ];
+      return (
+        data as {
+          denials: Array<{
+            challenge: string;
+            toolCallId: string;
+            fingerprint: string;
+          }>;
+        }
+      ).denials.filter((record) => {
+        if (seen.has(record.challenge)) return false;
+        seen.add(record.challenge);
+        return true;
+      }).map(({ challenge, toolCallId, fingerprint }) => ({
+        challenge, toolCallId, fingerprint,
+      }));
     });
   }
 
@@ -1737,6 +1741,40 @@ describe('AgentApprovalReviewService', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('publishes only active challenges after replacement, approval and context cuts', async () => {
+    const t = await setup();
+    t.state.settings = { twoStage: false };
+    t.state.replies = [deny, deny, allow, deny];
+    const review = async (id: string) => {
+      const context = t.context();
+      context.toolCall.id = id;
+      await t.service.review(context, { kind: 'ask' }, 'fallback-ask');
+      return (
+        (t.dispatch.mock.calls as unknown[][]).at(-1)?.[0] as {
+          update: {
+            customData: {
+              sequence: number;
+              denials: Array<{ toolCallId: string }>;
+            };
+          };
+        }
+      ).update.customData;
+    };
+    expect(await review('first')).toMatchObject({
+      sequence: 1,
+      denials: [{ toolCallId: 'first' }],
+    });
+    expect(await review('second')).toMatchObject({
+      sequence: 2,
+      denials: [{ toolCallId: 'second' }],
+    });
+    expect((await review('approved')).denials).toEqual([]);
+    await review('before-cut');
+    t.state.revision++;
+    t.state.rules = [{ pattern: 'Bash', decision: 'ask', scope: 'user' }];
+    expect((await review('after-cut')).denials).toEqual([]);
   });
 
   it('consumes a one-time approval only for an exact reviewer-approved retry', async () => {

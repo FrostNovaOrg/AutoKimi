@@ -226,7 +226,7 @@ export async function preparePackage(
     const dependency = JSON.parse(
       readFileSync(join(path, 'package.json'), 'utf8'),
     );
-    const id = `${dependency.name.replaceAll('/', '+')}@${dependency.version}-${sha256(path).slice(0, 10)}`;
+    const id = `${dependency.name.replaceAll('/', '+')}@${dependency.version}-${nodes.size}`;
     const node = {
       source: path,
       name: dependency.name,

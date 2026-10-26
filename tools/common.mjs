@@ -31,16 +31,19 @@ export function run(command, args, options = {}) {
   })?.trim();
 }
 
-export async function filesUnder(root, prefix = '') {
+export async function filesUnder(root, prefix = '', ignored = []) {
   const files = [];
   for (const entry of await readdir(join(root, prefix), {
     withFileTypes: true,
   })) {
     const path = prefix ? prefix + '/' + entry.name : entry.name;
+    if (ignored.includes(path)) continue;
     if (entry.isSymbolicLink())
       throw new Error('Source symlinks are not supported: ' + path);
-    if (entry.isDirectory()) files.push(...(await filesUnder(root, path)));
+    if (entry.isDirectory())
+      files.push(...(await filesUnder(root, path, ignored)));
     else if (entry.isFile()) files.push(path);
+    else throw new Error('Unsupported source entry: ' + path);
   }
   return files.sort();
 }

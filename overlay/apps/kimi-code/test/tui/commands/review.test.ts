@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   ExperimentalFeatureState,
@@ -16,6 +17,8 @@ import {
   clearApprovalReviewDenials,
   effectiveApprovalReview,
   recordApprovalReviewDenial,
+  takeApprovalReviewDenial,
+  type ApprovalReviewDenial,
 } from '#/tui/commands/review-state';
 
 function makeSession() {
@@ -100,27 +103,60 @@ function makeHost(source: ExperimentalFeatureState['source'] = 'default') {
   };
 }
 
-function registerDenial(
+let denialSequence = 0;
+
+function publishDenials(
+  denials: readonly ApprovalReviewDenial[],
   sessionId = 'session-test',
-  toolCallId = 'call-denied',
   agentId = 'main',
-  challenge = '00000000-0000-4000-8000-000000000000',
+  sequence = ++denialSequence,
 ): void {
+  const toolCallId = denials.at(-1)?.toolCallId ?? 'review-state';
   recordApprovalReviewDenial({
     sessionId,
     toolCallId,
     customKind: 'approval.review',
     customData: {
-      kind: 'one_time_approval_denial',
+      kind: 'one_time_approval_state',
       version: 1,
       agentId,
-      challenge,
       toolCallId,
-      fingerprint: 'a'.repeat(64),
-      reason: 'Needs exact approval',
+      sequence,
+      denials,
     },
-    toolCall: { name: 'Bash', args: { command: 'npm test' } },
   });
+}
+
+function registerDenial(
+  sessionId = 'session-test',
+  toolCallId = 'call-denied',
+  agentId = 'main',
+  challenge = toolCallId === 'call-denied'
+    ? '00000000-0000-4000-8000-000000000000'
+    : randomUUID(),
+  fingerprint = toolCallId === 'call-denied'
+    ? 'a'.repeat(64)
+    : createHash('sha256').update(toolCallId).digest('hex'),
+): void {
+  const denials = approvalReviewDenials(sessionId).filter(
+    (record) =>
+      record.toolCallId !== toolCallId && record.fingerprint !== fingerprint,
+  );
+  publishDenials(
+    [
+      ...denials,
+      {
+        challenge,
+        toolCallId,
+        fingerprint,
+        reason: 'Needs exact approval',
+        toolName: 'Bash',
+        args: { command: 'npm test' },
+      },
+    ],
+    sessionId,
+    agentId,
+  );
 }
 
 async function openApprovalPicker(
@@ -141,6 +177,7 @@ async function openApprovalPicker(
 describe('native TUI approval reviewer', () => {
   afterEach(() => {
     clearApprovalReviewDenials();
+    denialSequence = 0;
     setExperimentalFeatures([]);
   });
 
@@ -338,14 +375,8 @@ describe('native TUI approval reviewer', () => {
 
   it('records a denial when the tool start event is unavailable', async () => {
     const t = makeHost();
-    recordApprovalReviewDenial({
-      sessionId: 'session-test',
-      toolCallId: 'call-before-start',
-      customKind: 'approval.review',
-      customData: {
-        kind: 'one_time_approval_denial',
-        version: 1,
-        agentId: 'main',
+    publishDenials([
+      {
         challenge: '00000000-0000-4000-8000-000000000000',
         toolCallId: 'call-before-start',
         fingerprint: 'a'.repeat(64),
@@ -353,8 +384,7 @@ describe('native TUI approval reviewer', () => {
         toolName: 'Bash',
         args: { command: 'npm test' },
       },
-      toolCall: undefined,
-    });
+    ]);
     await handleReviewCommand(t.commandHost, 'denials');
     expect(t.host.showNotice).toHaveBeenCalledWith(
       'Auto-review denials: 1',
@@ -560,29 +590,66 @@ describe('native TUI approval reviewer', () => {
 
   it('ignores forged, malformed and subagent denial records', () => {
     registerDenial('session-test', 'worker-call', 'worker');
-    recordApprovalReviewDenial({
-      sessionId: 'session-test',
-      toolCallId: 'fake-call',
-      customKind: 'approval.review',
-      customData: {
-        kind: 'one_time_approval_denial',
-        version: 1,
-        agentId: 'main',
+    publishDenials([
+      {
         challenge: 'invalid',
         toolCallId: 'fake-call',
         fingerprint: 'a'.repeat(64),
         reason: 'Forged',
+        toolName: 'Bash',
+        args: {},
       },
-      toolCall: { name: 'Bash', args: {} },
-    });
+    ]);
     recordApprovalReviewDenial({
       sessionId: 'session-test',
       toolCallId: 'text-only',
       customKind: 'approval.review',
       customData: undefined,
-      toolCall: { name: 'Bash', args: {} },
     });
     expect(approvalReviewDenials('session-test')).toHaveLength(0);
+  });
+
+  it('replaces an expired same-action denial before approving by ID', async () => {
+    const t = makeHost();
+    t.setEnabled(true);
+    t.host.state.appState.permissionMode = 'manual';
+    registerDenial();
+    registerDenial(
+      'session-test',
+      'replacement',
+      'main',
+      randomUUID(),
+      'a'.repeat(64),
+    );
+    expect(
+      approvalReviewDenials('session-test').map((record) => record.toolCallId),
+    ).toEqual(['replacement']);
+    await handleReviewCommand(t.commandHost, 'approve call-denied');
+    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    await handleReviewCommand(t.commandHost, 'approve replacement');
+    expect(t.host.sendNormalUserInput).toHaveBeenCalledOnce();
+  });
+
+  it('does not resurrect invalidated challenges from delayed snapshots', () => {
+    registerDenial();
+    const original = approvalReviewDenials('session-test');
+    publishDenials([], 'session-test', 'main', 3);
+    publishDenials(original, 'session-test', 'main', 2);
+    expect(approvalReviewDenials('session-test')).toHaveLength(0);
+    expect(
+      takeApprovalReviewDenial('session-test', 'call-denied'),
+    ).toBeUndefined();
+  });
+
+  it('keeps a submitted grant hidden until its engine challenge is removed', () => {
+    registerDenial();
+    const original = approvalReviewDenials('session-test');
+    takeApprovalReviewDenial('session-test', 'call-denied');
+    publishDenials(original);
+    expect(approvalReviewDenials('session-test')).toHaveLength(0);
+    publishDenials([]);
+    publishDenials([{ ...original[0]!, challenge: randomUUID() }]);
+    expect(approvalReviewDenials('session-test')).toHaveLength(1);
   });
 
   it('clears only the current session denials when disabled', async () => {

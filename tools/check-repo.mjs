@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { lstat, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { isMain, projectRoot, readJson, run } from './common.mjs';
+import { filesUnder, isMain, projectRoot, readJson, run } from './common.mjs';
 
 export function inspectContent(path, content) {
   assert.ok(
@@ -41,13 +41,22 @@ export function inspectContent(path, content) {
 export async function checkRepo(root = projectRoot) {
   const files = [
     ...new Set(
-      run(
-        'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-        { cwd: root, capture: true },
-      )
-        .split('\0')
-        .filter(Boolean),
+      existsSync(join(root, '.git'))
+        ? run(
+            'git',
+            ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+            { cwd: root, capture: true },
+          )
+            .split('\0')
+            .filter(Boolean)
+        : await filesUnder(root, '', [
+            '.cache',
+            '.artifacts',
+            'node_modules',
+            'coverage',
+            'dist',
+            '.DS_Store',
+          ]),
     ),
   ].sort();
   let bytes = 0;

@@ -11,8 +11,7 @@ import {
 
 interface ReviewSession {
   getResumeState():
-    | { sessionMetadata: { custom?: Record<string, unknown> } }
-    | undefined;
+    { sessionMetadata: { custom?: Record<string, unknown> } } | undefined;
   summary?: { metadata?: Record<string, unknown> };
 }
 
@@ -56,45 +55,26 @@ export interface ApprovalReviewDenial {
   args: Record<string, unknown>;
 }
 
-interface DenialToolCall {
-  name: string;
-  args: Record<string, unknown>;
+interface DenialState {
+  sequence: number;
+  records: Map<string, ApprovalReviewDenial>;
+  consumed: Set<string>;
 }
 
-const denialRecords = new Map<string, Map<string, ApprovalReviewDenial>>();
+const denialRecords = new Map<string, DenialState>();
 
-export function recordApprovalReviewDenial(input: {
-  sessionId: string;
-  toolCallId: string;
-  customKind: string | undefined;
-  customData: unknown;
-  toolCall: DenialToolCall | undefined;
-}): void {
+function parseDenial(value: unknown): ApprovalReviewDenial | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return undefined;
+  const data = value as Record<string, unknown>;
+  const { challenge, toolCallId, fingerprint, reason, toolName, args } = data;
   if (
-    input.sessionId.length === 0 ||
-    input.customKind !== 'approval.review' ||
-    typeof input.customData !== 'object' ||
-    input.customData === null ||
-    Array.isArray(input.customData)
-  )
-    return;
-  const data = input.customData as Record<string, unknown>;
-  const challenge = data['challenge'];
-  const toolCallId = data['toolCallId'];
-  const fingerprint = data['fingerprint'];
-  const reason = data['reason'];
-  const toolName = input.toolCall?.name ?? data['toolName'];
-  const args = input.toolCall?.args ?? data['args'];
-  if (
-    data['kind'] !== APPROVAL_REVIEW_DENIAL_KIND ||
-    data['version'] !== 1 ||
-    data['agentId'] !== 'main' ||
-    toolCallId !== input.toolCallId ||
     typeof challenge !== 'string' ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       challenge,
     ) ||
     typeof toolCallId !== 'string' ||
+    toolCallId.length === 0 ||
     typeof fingerprint !== 'string' ||
     !/^[a-f0-9]{64}$/.test(fingerprint) ||
     typeof reason !== 'string' ||
@@ -105,28 +85,76 @@ export function recordApprovalReviewDenial(input: {
     args === null ||
     Array.isArray(args)
   )
-    return;
-  const records = denialRecords.get(input.sessionId) ?? new Map();
-  records.delete(input.toolCallId);
-  records.set(input.toolCallId, {
+    return undefined;
+  return {
     challenge,
-    toolCallId: input.toolCallId,
+    toolCallId,
     fingerprint,
     reason,
     toolName,
     args: args as Record<string, unknown>,
+  };
+}
+
+export function recordApprovalReviewDenial(input: {
+  sessionId: string;
+  toolCallId: string;
+  customKind: string | undefined;
+  customData: unknown;
+}): void {
+  if (
+    input.sessionId.length === 0 ||
+    input.customKind !== 'approval.review' ||
+    typeof input.customData !== 'object' ||
+    input.customData === null ||
+    Array.isArray(input.customData)
+  )
+    return;
+  const data = input.customData as Record<string, unknown>;
+  const sequence = data['sequence'];
+  const values = data['denials'];
+  if (
+    data['kind'] !== APPROVAL_REVIEW_DENIAL_KIND ||
+    data['version'] !== 1 ||
+    data['agentId'] !== 'main' ||
+    data['toolCallId'] !== input.toolCallId ||
+    typeof sequence !== 'number' ||
+    !Number.isSafeInteger(sequence) ||
+    sequence < 1 ||
+    !Array.isArray(values) ||
+    values.length > APPROVAL_REVIEW_DENIAL_LIMIT
+  )
+    return;
+  const state = denialRecords.get(input.sessionId);
+  if (state !== undefined && sequence <= state.sequence) return;
+  const records = values.map(parseDenial);
+  if (records.some((record) => record === undefined)) return;
+  const denials = records as ApprovalReviewDenial[];
+  if (
+    new Set(denials.map((record) => record.toolCallId)).size !==
+      denials.length ||
+    new Set(denials.map((record) => record.fingerprint)).size !== denials.length
+  )
+    return;
+  const active = new Set(denials.map((record) => record.challenge));
+  const consumed = new Set(
+    [...(state?.consumed ?? [])].filter((id) => active.has(id)),
+  );
+  denialRecords.set(input.sessionId, {
+    sequence,
+    consumed,
+    records: new Map(
+      denials
+        .filter((record) => !consumed.has(record.challenge))
+        .map((record) => [record.toolCallId, record]),
+    ),
   });
-  while (records.size > APPROVAL_REVIEW_DENIAL_LIMIT) {
-    const oldest = records.keys().next().value;
-    if (oldest !== undefined) records.delete(oldest);
-  }
-  denialRecords.set(input.sessionId, records);
 }
 
 export function approvalReviewDenials(
   sessionId: string,
 ): readonly ApprovalReviewDenial[] {
-  return [...(denialRecords.get(sessionId)?.values() ?? [])];
+  return [...(denialRecords.get(sessionId)?.records.values() ?? [])];
 }
 
 export function takeApprovalReviewDenial(
@@ -134,14 +162,15 @@ export function takeApprovalReviewDenial(
   toolCallId: string,
   challenge?: string,
 ): ApprovalReviewDenial | undefined {
-  const records = denialRecords.get(sessionId);
-  const record = records?.get(toolCallId);
+  const state = denialRecords.get(sessionId);
+  const record = state?.records.get(toolCallId);
   if (
     record === undefined ||
     (challenge !== undefined && record.challenge !== challenge)
   )
     return undefined;
-  records?.delete(toolCallId);
+  state?.records.delete(toolCallId);
+  state?.consumed.add(record.challenge);
   return record;
 }
 

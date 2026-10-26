@@ -30,7 +30,7 @@ index 5ba92a4..f399fd7 100644
    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
    if (mode !== 'manual') {
 diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
-index 927e1fb..f4704cf 100644
+index 927e1fb..f615fe2 100644
 --- a/apps/kimi-code/src/tui/commands/dispatch.ts
 +++ b/apps/kimi-code/src/tui/commands/dispatch.ts
 @@ -67,6 +67,7 @@ import {
@@ -55,7 +55,7 @@ index 927e1fb..f4704cf 100644
        showSettingsSelector(host);
        return;
 diff --git a/apps/kimi-code/src/tui/commands/registry.ts b/apps/kimi-code/src/tui/commands/registry.ts
-index e4ad7ab..9ba38a6 100644
+index e4ad7ab..2cc4d81 100644
 --- a/apps/kimi-code/src/tui/commands/registry.ts
 +++ b/apps/kimi-code/src/tui/commands/registry.ts
 @@ -145,6 +145,21 @@ function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: str
@@ -80,19 +80,6 @@ index e4ad7ab..9ba38a6 100644
    {
      name: 'yolo',
      aliases: ['yes'],
-diff --git a/apps/kimi-code/test/tui/commands/registry.test.ts b/apps/kimi-code/test/tui/commands/registry.test.ts
---- a/apps/kimi-code/test/tui/commands/registry.test.ts
-+++ b/apps/kimi-code/test/tui/commands/registry.test.ts
-@@ -41,6 +41,9 @@
-     expect(findBuiltInSlashCommand('usage')?.aliases).not.toContain('status');
-+    expect(findBuiltInSlashCommand('approval')?.name).toBe('approval');
-+    expect(findBuiltInSlashCommand('approve')?.name).toBe('approval');
-+    expect(resolveSlashCommandAvailability(findBuiltInSlashCommand('approval')!, '')).toBe('idle-only');
-     expect(findBuiltInSlashCommand('unknown')).toBeUndefined();
-   });
- 
-   it('marks plan clear as idle-only while normal plan toggles are always available', () => {
-     const plan = findBuiltInSlashCommand('plan');
 diff --git a/apps/kimi-code/src/tui/components/chrome/footer.ts b/apps/kimi-code/src/tui/components/chrome/footer.ts
 index d9fd386..96d249e 100644
 --- a/apps/kimi-code/src/tui/components/chrome/footer.ts
@@ -117,7 +104,7 @@ index d9fd386..96d249e 100644
      if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
      if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
 diff --git a/apps/kimi-code/src/tui/controllers/session-event-handler.ts b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
-index c227a0c..991ba3a 100644
+index c227a0c..db09ac9 100644
 --- a/apps/kimi-code/src/tui/controllers/session-event-handler.ts
 +++ b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
 @@ -44,6 +44,10 @@ import {
@@ -131,38 +118,15 @@ index c227a0c..991ba3a 100644
  import { buildGoalCompletionMessage } from '../utils/goal-completion';
  import {
    argsRecord,
-@@ -182,6 +186,10 @@ export class SessionEventHandler {
-   private queuedGoalPromotionInFlight = false;
-   private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
-   private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
-+  private approvalReviewToolCalls = new Map<
-+    string,
-+    { name: string; args: Record<string, unknown> }
-+  >();
- 
-   resetRuntimeState(): void {
-     this.backgroundTasks.clear();
-@@ -203,6 +211,8 @@ export class SessionEventHandler {
+@@ -203,6 +207,7 @@ export class SessionEventHandler {
      this.queuedGoalPromotionInFlight = false;
      this.clearQueuedGoalPromotionTimer();
      this.clearStepRetryAttemptTimer();
-+    this.approvalReviewToolCalls.clear();
 +    clearApprovalReviewDenials();
      this.stopAllMcpServerStatusSpinners();
    }
  
-@@ -644,6 +654,10 @@ export class SessionEventHandler {
-       turnId,
-     };
-     streamingUI.registerToolCall(toolCall);
-+    this.approvalReviewToolCalls.set(event.toolCallId, {
-+      name: event.name,
-+      args: toolCall.args,
-+    });
-     if (event.name === 'AgentSwarm') {
-       this.subAgentEventHandler.handleAgentSwarmToolCallStarted(event.toolCallId, toolCall.args);
-     }
-@@ -685,10 +699,22 @@ export class SessionEventHandler {
+@@ -685,10 +690,21 @@ export class SessionEventHandler {
      if (this.host.streamingUI.markWaitForRunning(event.toolCallId)) {
        this.host.steerQueuedMessagesIntoRunningTurn();
      }
@@ -172,7 +136,6 @@ index c227a0c..991ba3a 100644
 +        toolCallId: event.toolCallId,
 +        customKind: event.update.customKind,
 +        customData: event.update.customData,
-+        toolCall: this.approvalReviewToolCalls.get(event.toolCallId),
 +      });
 +    }
      const text = event.update.text;
@@ -186,14 +149,6 @@ index c227a0c..991ba3a 100644
      if (event.update.kind === 'status') {
        tc.appendProgress(text, { replace: event.update.replace === true });
        return;
-@@ -703,6 +729,7 @@ export class SessionEventHandler {
-     this.host.surveyController.notifyToolCallEnded(event.toolCallId);
-     streamingUI.flushNow();
-     this.clearStepRetry();
-+    this.approvalReviewToolCalls.delete(event.toolCallId);
-     const resultData: ToolResultBlockData = {
-       tool_call_id: event.toolCallId,
-       output: serializeToolResultOutput(event.output),
 diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
 index 5fe1e3e..4e23bd4 100644
 --- a/apps/kimi-code/src/tui/kimi-tui.ts
@@ -300,6 +255,20 @@ index 1a5930f..dc4f5f1 100644
    planMode: boolean;
    /** Resolved profile name from --agent/--agent-file, carried to the
     * lazy-created first session when the TUI starts session-less. */
+diff --git a/apps/kimi-code/test/tui/commands/registry.test.ts b/apps/kimi-code/test/tui/commands/registry.test.ts
+index 4fff07e..8c69947 100644
+--- a/apps/kimi-code/test/tui/commands/registry.test.ts
++++ b/apps/kimi-code/test/tui/commands/registry.test.ts
+@@ -40,6 +40,9 @@ describe('built-in slash command registry', () => {
+     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
+     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
+     expect(findBuiltInSlashCommand('usage')?.aliases).not.toContain('status');
++    expect(findBuiltInSlashCommand('approval')?.name).toBe('approval');
++    expect(findBuiltInSlashCommand('approve')?.name).toBe('approval');
++    expect(resolveSlashCommandAvailability(findBuiltInSlashCommand('approval')!, '')).toBe('idle-only');
+     expect(findBuiltInSlashCommand('unknown')).toBeUndefined();
+   });
+ 
 diff --git a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts b/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
 index 08883eb..4426839 100644
 --- a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
@@ -337,7 +306,7 @@ index 08883eb..4426839 100644
      const state: AppState = {
        ...baseState,
 diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
-index 555d864..f37a12b 100644
+index 555d864..395c7c7 100644
 --- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
 +++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
 @@ -61,6 +61,10 @@ import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
@@ -370,7 +339,7 @@ index 555d864..f37a12b 100644
    resetCapabilitiesCache();
    for (const dir of tempDirs.splice(0)) {
      await rm(dir, { recursive: true, force: true });
-@@ -5427,6 +5435,99 @@ command = "vim"
+@@ -5427,6 +5435,98 @@ command = "vim"
      driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', extra), () => {});
    }
  
@@ -382,15 +351,14 @@ index 555d864..f37a12b 100644
 +        customKind: 'approval.review',
 +        text: 'Auto-review denied',
 +        customData: {
-+          kind: 'one_time_approval_denial',
-+          version: 1,
-+          agentId,
-+          challenge: '00000000-0000-4000-8000-000000000000',
-+          toolCallId: 'review-denied',
-+          fingerprint: 'a'.repeat(64),
-+          reason: 'Synthetic denial',
-+          toolName: 'Bash',
-+          args: { command: 'npm test' },
++          kind: 'one_time_approval_state', version: 1, agentId,
++          toolCallId: 'review-denied', sequence: 1,
++          denials: [{
++            challenge: '00000000-0000-4000-8000-000000000000',
++            toolCallId: 'review-denied', fingerprint: 'a'.repeat(64),
++            reason: 'Synthetic denial', toolName: 'Bash',
++            args: { command: 'npm test' },
++          }],
 +        },
 +      },
 +    });
@@ -1603,7 +1571,7 @@ index d73de48..5a7531d 100644
      const dir = await makeTempDir();
      const rpc = createKimiConfigRpc();
 diff --git a/packages/node-sdk/test/session-prompt-events.test.ts b/packages/node-sdk/test/session-prompt-events.test.ts
-index 56be2d4..a6a3ce5 100644
+index 56be2d4..311cc9d 100644
 --- a/packages/node-sdk/test/session-prompt-events.test.ts
 +++ b/packages/node-sdk/test/session-prompt-events.test.ts
 @@ -1,4 +1,4 @@
@@ -1612,7 +1580,7 @@ index 56be2d4..a6a3ce5 100644
  import { tmpdir } from 'node:os';
  import { join } from 'node:path';
  import { setTimeout as delay } from 'node:timers/promises';
-@@ -36,11 +36,30 @@ function sseBody(text: string): string {
+@@ -36,11 +36,31 @@ function sseBody(text: string): string {
      .join('');
  }
  
@@ -1630,7 +1598,8 @@ index 56be2d4..a6a3ce5 100644
 +    const data = event.update.customData;
 +    if (typeof data !== 'object' || data === null) return [];
 +    const record = data as Record<string, unknown>;
-+    return record['kind'] === 'one_time_approval_denial' ? [record] : [];
++    return record['kind'] === 'one_time_approval_state' && record['version'] === 1
++      ? record['denials'] as Array<Record<string, unknown>> : [];
 +  });
 +}
 +
@@ -1643,7 +1612,7 @@ index 56be2d4..a6a3ce5 100644
    fakeProviderState.calls.length = 0;
    fakeProviderState.responseText = 'hello from fake provider';
    fetchStub = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-@@ -96,6 +115,467 @@ async function removeTempDir(dir: string): Promise<void> {
+@@ -96,6 +116,467 @@ async function removeTempDir(dir: string): Promise<void> {
  }
  
  describe('Session.prompt events', () => {
@@ -1924,14 +1893,14 @@ index 56be2d4..a6a3ce5 100644
 +      ).rejects.toMatchObject({ code: 'ENOENT' });
 +      const denial = reviewDenialRecords(events)[0]!;
 +      expect(denial).toMatchObject({
-+        version: 1,
 +        agentId: 'main',
 +        toolCallId: 'override-write-1',
 +        toolName: 'Write',
 +        args: { path: 'override-result.txt', content: 'allowed-once' },
 +      });
 +      const denialEventIndex = events.findIndex(
-+        (event) => event.type === 'tool.progress' && event.update.customData === denial,
++        (event) => event.type === 'tool.progress' &&
++          (event.update.customData as { denials?: unknown[] } | undefined)?.denials?.includes(denial),
 +      );
 +      expect(denialEventIndex).toBeGreaterThanOrEqual(0);
 +      expect(

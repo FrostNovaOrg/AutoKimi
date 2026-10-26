@@ -279,6 +279,18 @@ test('uses a new release when only dependency contents change', async (t) => {
   assert.ok((await readFile(receipt.launcher, 'utf8')).includes(entrypoint));
 });
 
+test('identical builds in different directories produce the same release', async (t) => {
+  const first = await fixture(t);
+  const second = await fixture(t);
+  assert.deepEqual(
+    await readJson(join(first.package, 'autokimi-package.json')),
+    await readJson(join(second.package, 'autokimi-package.json')),
+  );
+  const a = await install(first);
+  const b = await install({ ...second, home: first.home });
+  assert.equal(a.distribution, b.distribution);
+});
+
 test('refuses a symlinked receipt before changing config or the official command', async (t) => {
   const f = await fixture(t);
   const official = join(f.home, 'bin', 'kimi');
@@ -458,11 +470,51 @@ test('packages the build kit and routes update and upgrade to the follow tool', 
     /autokimi upgrade/,
   );
   assert.deepEqual(
-    JSON.parse(execFileSync(receipt.launcher, ['ordinary'], { encoding: 'utf8' })).args,
+    JSON.parse(
+      execFileSync(receipt.launcher, ['ordinary'], { encoding: 'utf8' }),
+    ).args,
     ['ordinary'],
   );
   assert.equal(
     await readFile(join(f.home, 'bin', 'kimi'), 'utf8'),
     'official command sentinel\n',
+  );
+  const kit = join(receipt.distribution, 'build-kit');
+  const { pathToFileURL } = await import('node:url');
+  const { followUpstream } = await import(
+    pathToFileURL(join(kit, 'tools/follow-upstream.mjs'))
+  );
+  let checks = 0;
+  const result = await followUpstream(
+    { workRoot: join(f.root, 'candidate') },
+    {
+      createCandidate: async () => ({
+        lock: await readJson(join(kit, 'upstream.lock.json')),
+      }),
+      runCommand: (command, args, options) => {
+        assert.notEqual(
+          command,
+          'git',
+          'A packaged build kit has no Git metadata',
+        );
+        if (command === 'npm' && args.join(' ') === 'run check') {
+          checks++;
+          execFileSync(command, args, { ...options, stdio: 'pipe' });
+        }
+      },
+      preparePackage: async () => f.package,
+    },
+  );
+  assert.equal(checks, 1);
+  assert.equal(result.status, 'candidate');
+  execFileSync('git', ['init', '-q', f.root]);
+  await writeFile(join(kit, 'unexpected.pem'), 'fixture');
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, ['tools/check-repo.mjs'], {
+        cwd: kit,
+        stdio: 'pipe',
+      }),
+    /private file/,
   );
 });

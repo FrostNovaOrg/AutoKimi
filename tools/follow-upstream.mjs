@@ -169,7 +169,8 @@ export async function followUpstream(options = {}, dependencies = {}) {
     );
     runCommand('npm', ['test'], { cwd: projectRoot });
     runCommand('npm', ['run', 'check'], { cwd: projectRoot });
-    runCommand('git', ['diff', '--check'], { cwd: projectRoot });
+    if (existsSync(join(projectRoot, '.git')))
+      runCommand('git', ['diff', '--check'], { cwd: projectRoot });
     runCommand(
       'npm',
       [

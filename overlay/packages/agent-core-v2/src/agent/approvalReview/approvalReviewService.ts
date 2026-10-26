@@ -61,6 +61,9 @@ interface DenialChallenge {
   sessionId: string;
   agentId: string;
   revision: number;
+  toolName: string;
+  args: unknown;
+  reason: string;
 }
 
 const rejectedReview = (
@@ -107,6 +110,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   private denials = 0;
   private recentDecisions: Array<'allow' | ReviewSource> = [];
   private denialChallenges = new Map<string, DenialChallenge>();
+  private denialSequence = 0;
   private consumedHumanApprovals = new Set<string>();
 
   constructor(
@@ -178,7 +182,8 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     });
     let stillCurrent = (): boolean => false;
     let reviewSucceeded = false;
-    let oneTimeApproval: { toolCallId: string; fingerprint: string } | undefined;
+    let oneTimeApproval:
+      { toolCallId: string; fingerprint: string } | undefined;
     let humanApproval: VerifiedHumanApproval | undefined;
     if (!parsedSettings.success)
       decision ??= rejectedReview(
@@ -334,10 +339,8 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     decision.source ??= 'model';
     let safetyDecision = decision;
     const recentDenials = (current: ReviewVerdict) =>
-      this.recentDecisions
-        .slice(-49)
-        .filter((value) => value !== 'allow').length +
-      (current.decision === 'deny' ? 1 : 0);
+      this.recentDecisions.slice(-49).filter((value) => value !== 'allow')
+        .length + (current.decision === 'deny' ? 1 : 0);
     const recentSafetyDenials = (current: ReviewVerdict) =>
       this.recentDecisions
         .slice(-49)
@@ -404,7 +407,9 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     const stopTurn = stopsTurn(safetyDecision);
     this.denials = countsTowardStop(safetyDecision) ? this.denials + 1 : 0;
     const history =
-      decision === safetyDecision ? [safetyDecision] : [safetyDecision, decision];
+      decision === safetyDecision
+        ? [safetyDecision]
+        : [safetyDecision, decision];
     for (const current of history)
       this.recentDecisions.push(
         current.decision === 'allow' ? 'allow' : (current.source ?? 'model'),
@@ -416,23 +421,27 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
         if (record.fingerprint === fingerprint)
           this.denialChallenges.delete(record.toolCallId);
     } else if (decision.source === 'model' && decision.risk !== 'critical') {
-      challenge = this.registerDenialChallenge(context, fingerprint);
+      challenge = this.registerDenialChallenge(
+        context,
+        fingerprint,
+        decision.reason,
+      );
     }
+    for (const record of this.denialChallenges.values())
+      if (record.revision !== this.contextMemory.prefixRevision())
+        this.denialChallenges.delete(record.toolCallId);
     this.progress(
       context,
       `Auto-review ${decision.decision === 'allow' ? 'approved' : 'denied'}: ${decision.reason}${stopTurn ? ' Turn stopped after repeated safety denials.' : ''}`,
-      challenge === undefined
+      this.scope.agentId !== 'main'
         ? undefined
         : {
-            kind: 'one_time_approval_denial',
+            kind: 'one_time_approval_state',
             version: 1,
-            challenge: challenge.challenge,
-            toolCallId: challenge.toolCallId,
-            fingerprint: challenge.fingerprint,
-            agentId: challenge.agentId,
-            toolName: context.toolCall.name,
-            args: context.args,
-            reason: decision.reason,
+            toolCallId: context.toolCall.id,
+            agentId: this.scope.agentId,
+            sequence: ++this.denialSequence,
+            denials: [...this.denialChallenges.values()],
           },
     );
     if (decision.decision === 'allow') return { kind: 'approve' };
@@ -523,6 +532,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   private registerDenialChallenge(
     context: ResolvedToolExecutionHookContext,
     fingerprint: string,
+    reason: string,
   ): DenialChallenge | undefined {
     if (this.scope.agentId !== 'main') return undefined;
     for (const record of this.denialChallenges.values())
@@ -535,6 +545,9 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       sessionId: this.session.sessionId,
       agentId: this.scope.agentId,
       revision: this.contextMemory.prefixRevision(),
+      toolName: context.toolCall.name,
+      args: context.args,
+      reason,
     };
     this.denialChallenges.set(record.toolCallId, record);
     while (this.denialChallenges.size > 10) {
