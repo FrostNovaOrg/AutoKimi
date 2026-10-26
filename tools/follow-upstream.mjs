@@ -190,6 +190,7 @@ export async function followUpstream(options = {}, dependencies = {}) {
     });
     const manifest = await readJson(join(packagePath, 'autokimi-package.json'));
     Object.assign(report, {
+      autoKimi: manifest.autoKimi,
       status: 'candidate',
       stage: 'package',
       packagePath,

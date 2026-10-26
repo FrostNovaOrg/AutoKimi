@@ -33,6 +33,8 @@ npm run install:local -- --timeout-ms 90000
 
 `/approval`（别名 `/approve`）列出可授权命令，Enter 将选中项从 ✗ 变为 ✓ 并发送一次授权，再按 Enter 或 Esc 关闭。`denials` 用于诊断，显式 ID 仍兼容。工具、完整参数和 cwd 必须不变且须复审；不生成永久 allow 规则。compaction、undo、session reset 或重启后旧授权失效。
 
+**仅支持交互终端会话。** `autokimi` 禁止 `-p/--prompt`、无终端启动及 ACP/Web 服务；自动化请使用原生 `kimi`。帮助、版本和更新命令可在非交互环境使用。
+
 **官方 `/auto` 是 Never Ask 模式，会暂停分类器。** 使用 AutoKimi 时保持 Always Ask；`/auto-review on` 会切回该模式。审核开启状态会显示在底栏。
 
 ## 源码组织
@@ -46,7 +48,7 @@ npm run install:local -- --timeout-ms 90000
 | `test/`                       | 源码还原和安装器的隔离测试                       |
 | `.cache/`、`.artifacts/`      | 本地生成目录，均不进入 Git                       |
 
-完整可构建源码由锁定的官方提交、补丁和 overlay 共同组成。仓库只保存需要维护的差异；不收录官方历史、依赖、编译产物、登录配置、会话和原始评测记录。源码体积上限为 512 KiB，单文件上限为 128 KiB。
+完整可构建源码由锁定的官方提交、补丁和 overlay 共同组成。仓库只保存需要维护的差异；不收录官方历史、依赖、编译产物、登录配置、会话和原始评测记录。源码体积上限为 576 KiB，单文件上限为 128 KiB。
 
 ## 文档
 
@@ -57,7 +59,7 @@ npm run install:local -- --timeout-ms 90000
 - [超时与常见问题](docs/troubleshooting.md)
 - [验证范围与已知限制](docs/verification.md)
 
-官方 `kimi` 更新不会自动改变已安装的 AutoKimi，日常构建仍固定 **2.3.0**。维护者可显式运行 `npm run follow:upstream -- --version 2.3.1` 验证候选，或在安装后使用 `autokimi update`；`update` 默认只验证并生成候选，只有显式 `--install` 才安装。`autokimi upgrade` 用于一键更新：先验证 AutoKimi 候选，官方较旧时执行官方升级并复读版本，再安装 AutoKimi 或刷新安装回执。没有后台更新；失败或部分成功会写入报告，旧 AutoKimi release 会保留。
+日常构建固定 Kimi **2.3.0**，MCP SDK 固定 **1.32.2**。`autokimi update` 取得本项目最新源码并验证候选，`--install` 才安装；`autokimi upgrade` 同步项目修复并执行完整升级。`autokimi --version` 显示项目版本和源码身份。首次启用此更新机制须从 Git 重建安装；详见 [更新说明](docs/installation.md#更新)。
 
 模型审核会产生额外请求和费用，也可能误拒绝或误放行；它不是操作系统沙箱。参见[验证范围](docs/verification.md)。
 

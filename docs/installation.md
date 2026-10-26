@@ -65,13 +65,15 @@ npm run follow:upstream -- --version 2.3.1
 
 该命令验证正式版本的 tag、npm integrity、签名与 provenance，确认它们指向同一个 commit，再在独立目录应用补丁、构建、测试和打包。不会修改根 `upstream.lock.json`，也不会自动安装。报告和 `candidate.lock.json` 位于 `.artifacts/upstream-candidates/` 下；按报告路径使用 `npm run install:local -- --lock <path>` 才会切换，只有显式 `--install` 才会在跟随流程中调用安装器。
 
-安装后的 `autokimi update` 是同样的可选入口：默认只验证，`autokimi update --install` 才安装。运行包额外包含 `build-kit/` 中的 overlay、补丁、构建工具、测试和文档，用于独立重建；更新工作目录位于 `KIMI_CODE_HOME/autokimi/update-work`，不写入 release。
+安装后的 `autokimi update` 先从本项目固定 GitHub 仓库取得 `main` 的最新源码，再使用其中的补丁验证 Kimi 候选；默认只验证，`autokimi update --install` 才安装。`--revision <完整提交 SHA>` 可固定 AutoKimi 源码，`--version` 选择 Kimi 基线。源代码检查或下载失败即停止，不回退到旧补丁。运行包额外包含 `build-kit/` 中的 overlay、补丁、构建工具、测试和文档，用于独立重建；更新工作目录位于 `KIMI_CODE_HOME/autokimi/update-work`，不写入 release。项目更新报告 `project-update.json` 记录源码身份，`runtime/report.json` 记录候选及安装状态。
 
-`autokimi upgrade` 是一键更新入口，本身就表示安装意图，不需要额外的 `--install`。它先完成 AutoKimi 候选的证据、构建、测试和打包；官方版本较旧时调用官方 `kimi upgrade --yes`，并复读实际版本确认升级生效，再安装 AutoKimi。官方已经相同或更新时不重复升级，AutoKimi 更新时不降级；包内容未变化时不重复安装，官方变化后即使包相同也会重安装以刷新回执中的官方哈希。`autokimi upgrade --help` 只显示帮助，不检查版本或执行升级。
+`autokimi --version` 显示 AutoKimi 版本、源码提交、修改状态、源码摘要及 Kimi 版本；归档源码没有 Git 提交时会明确标记。包清单和安装回执保存同一身份信息。
 
-跟随流程的 HOME 依次使用命令行 `--home`、`AUTOKIMI_HOME`、`KIMI_CODE_HOME`，最后才是 `~/.kimi-code`。生成候选后，per-home 安装锁覆盖重新读取当前安装、官方升级和 AutoKimi 安装；后取得锁的流程重新读取版本，避免用等待前的旧快照降级。直接安装旧包的显式维护操作不受这个跟随流程的版本比较限制。
+`autokimi upgrade` 同样先获取最新 AutoKimi 源码，是一键更新入口，本身就表示安装意图，不需要额外的 `--install`。它先完成 AutoKimi 候选的证据、构建、测试和打包；官方版本较旧时调用官方 `kimi upgrade --yes`，并复读实际版本确认升级生效，再安装 AutoKimi。官方已经相同或更新时不重复升级，AutoKimi 更新时不降级；包内容未变化时不重复安装，官方变化后即使包相同也会重安装以刷新回执中的官方哈希。`autokimi upgrade --help` 只显示帮助，不检查版本或执行升级。
 
-发布证据、补丁、构建或测试失败都会停止并报告，当前 launcher 和 release 不变。官方升级命令即使返回错误也会尝试复读版本：版本已升高则记录 `officialStatus=updated` 和 `partial`，版本复读失败则记录 `unknown`，不谎称版本未变；这些情况都不继续安装 AutoKimi。官方已升级但 AutoKimi 安装失败也会报告 `partial`，不能视为完整成功。临时目录或锁清理失败发生在提交后时，安装回执和升级报告返回 `cleanupWarning`，不会把已生效安装改报为失败；仍须人工检查残留。旧运行包会保留，安装器不会自动删除历史版本。其他启动参数仍直接进入官方运行时，没有后台任务、启动检查或定时更新。
+更新使用 `--home`、`AUTOKIMI_HOME`、`KIMI_CODE_HOME`、`~/.kimi-code` 依次解析 HOME；安装时加锁并重读当前版本。失败查看项目与运行时两份报告；`partial` 表示部分生效，`cleanupWarning` 表示生效后的清理或报告故障。旧 release 保留；没有后台更新。细节见 [故障排查](troubleshooting.md)。
+
+旧版安装器不会自行取得此更新机制；首次升级需 `git pull` 后重建安装。此后 `autokimi upgrade` 才会同步本项目修复。
 
 ## 卸载
 

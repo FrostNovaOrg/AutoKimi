@@ -1,3 +1,60 @@
+diff --git a/apps/kimi-code/src/cli/commands.ts b/apps/kimi-code/src/cli/commands.ts
+index 3ec6511..93ac679 100644
+--- a/apps/kimi-code/src/cli/commands.ts
++++ b/apps/kimi-code/src/cli/commands.ts
+@@ -3,6 +3,7 @@ import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/
+ import { Command, InvalidArgumentError, Option } from 'commander';
+ 
+ import type { CLIOptions } from './options';
++import { restrictToInteractiveTui } from './interactive-only';
+ import { registerAcpCommand } from './sub/acp';
+ import { registerDoctorCommand } from './sub/doctor';
+ import { registerExportCommand } from './sub/export';
+@@ -30,7 +31,7 @@ export function createProgram(
+   onUpdateDownload: UpdateDownloadHandler = () => {},
+ ): Command {
+   const program = new Command(CLI_COMMAND_NAME)
+-    .description('The Starting Point for Next-Gen Agents')
++    .description('AutoKimi interactive terminal sessions; use native kimi for headless execution.')
+     .version(version, '-V, --version')
+     .allowUnknownOption(false)
+     .enablePositionalOptions()
+@@ -64,7 +65,7 @@ export function createProgram(
+     .addOption(
+       new Option(
+         '-p, --prompt <prompt>',
+-        'Run one prompt non-interactively and print the response.',
++        'Unsupported by AutoKimi. Use native kimi -p for headless prompts.',
+       ),
+     )
+     .addOption(
+@@ -191,5 +192,6 @@ export function createProgram(
+     onMain(opts);
+   });
+ 
++  restrictToInteractiveTui(program);
+   return program;
+ }
+diff --git a/apps/kimi-code/src/cli/sub/web/run.ts b/apps/kimi-code/src/cli/sub/web/run.ts
+index a881e53..ff1f0af 100644
+--- a/apps/kimi-code/src/cli/sub/web/run.ts
++++ b/apps/kimi-code/src/cli/sub/web/run.ts
+@@ -25,6 +25,7 @@ import { persistedKimiOAuthRef } from '#/utils/region';
+ import { generateRemoteControlQr } from '#/utils/remote-control-qr';
+ 
+ import { initializeServerTelemetry } from '../../telemetry';
++import { rejectHeadlessServer } from '../../interactive-only';
+ import {
+   createKimiCodeHostIdentity,
+   getHostPackageRoot,
+@@ -321,6 +322,7 @@ export async function startServerForeground(
+   options: ParsedServerOptions,
+   hooks: StartForegroundHooks = {},
+ ): Promise<never> {
++  rejectHeadlessServer();
+   return runServerInProcess(options, hooks);
+ }
+ 
 diff --git a/apps/kimi-code/src/tui/commands/config.ts b/apps/kimi-code/src/tui/commands/config.ts
 index 5ba92a4..f399fd7 100644
 --- a/apps/kimi-code/src/tui/commands/config.ts

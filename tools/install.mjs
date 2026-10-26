@@ -40,6 +40,7 @@ import {
   sha256,
 } from './common.mjs';
 import { verifyPreparedSource } from './prepare.mjs';
+import { projectIdentity } from './project-identity.mjs';
 
 const marker = '# autokimi local launcher';
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -149,6 +150,7 @@ async function packageDigest(root) {
 function releaseId(manifest) {
   return sha256(
     JSON.stringify({
+      autoKimi: manifest.autoKimi,
       version: manifest.version,
       upstreamCommit: manifest.upstreamCommit,
       packageSha256: manifest.packageSha256,
@@ -296,10 +298,14 @@ export async function preparePackage(
       'NOTICE',
     ])
       if (existsSync(join(projectRoot, name)))
-        await cp(join(projectRoot, name), join(destination, 'build-kit', name), {
-          recursive: true,
-          dereference: true,
-        });
+        await cp(
+          join(projectRoot, name),
+          join(destination, 'build-kit', name),
+          {
+            recursive: true,
+            dereference: true,
+          },
+        );
     for (const node of nodes.values())
       await cp(node.source, node.target, {
         recursive: true,
@@ -321,9 +327,15 @@ export async function preparePackage(
     const dependencies = [...nodes.values()]
       .map((node) => `${node.name}@${node.version}`)
       .sort();
+    const autoKimi = await projectIdentity();
+    await writeFile(
+      join(destination, 'build-kit', '.autokimi-project.json'),
+      JSON.stringify(autoKimi) + '\n',
+    );
     const mainSha256 = sha256(main);
     const sdkSha256 = sha256(sdk);
     const manifest = {
+      autoKimi,
       version: pkg.version,
       upstreamCommit: verifiedSource ? lock.commit : 'unverified',
       mainSha256,
@@ -470,7 +482,9 @@ export async function install(options = {}) {
         ? await realpath(configPath)
         : undefined;
     const configMode =
-      configLink === undefined ? undefined : (await stat(configLink)).mode & 0o777;
+      configLink === undefined
+        ? undefined
+        : (await stat(configLink)).mode & 0o777;
     const [configBefore, launcherBefore, receiptBefore] = await Promise.all([
       readOptional(configPath),
       readOptional(target),
@@ -519,7 +533,19 @@ export async function install(options = {}) {
         if (linkedHome !== undefined)
           await rm(linkedHome, { recursive: true, force: true });
       }
-      const script = `#!/bin/sh\n${marker}\nexport KIMI_CODE_NO_AUTO_UPDATE=1\nexport KIMI_CODE_HOME=${quote(home)}\nexport AUTOKIMI_HOME=${quote(home)}\nif [ "$1" = "update" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(join(distribution, 'build-kit', 'tools', 'follow-upstream.mjs'))} "$@"\nfi\nif [ "$1" = "upgrade" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(join(distribution, 'build-kit', 'tools', 'follow-upstream.mjs'))} --upgrade "$@"\nfi\nexec ${quote(nodeCommand)} ${quote(join(distribution, 'dist', 'main.mjs'))} "$@"\n`;
+      const updateTool = join(
+        distribution,
+        'build-kit',
+        'tools',
+        manifest.autoKimi === undefined
+          ? 'follow-upstream.mjs'
+          : 'update-project.mjs',
+      );
+      const identityRoute =
+        manifest.autoKimi === undefined
+          ? ''
+          : `if [ "$1" = "--version" ] || [ "$1" = "-V" ] || [ "$1" = "version" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} --identity ${quote(join(distribution, 'autokimi-package.json'))} "$@"\nfi\n`;
+      const script = `#!/bin/sh\n${marker}\nexport KIMI_CODE_NO_AUTO_UPDATE=1\nexport KIMI_CODE_HOME=${quote(home)}\nexport AUTOKIMI_HOME=${quote(home)}\n${identityRoute}if [ "$1" = "update" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} "$@"\nfi\nif [ "$1" = "upgrade" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} --upgrade "$@"\nfi\nexec ${quote(nodeCommand)} ${quote(join(distribution, 'dist', 'main.mjs'))} "$@"\n`;
       await mkdir(bin, { recursive: true });
       await atomicWrite(target, script, 0o755);
       launcherChanged = true;
@@ -529,6 +555,7 @@ export async function install(options = {}) {
         distribution,
         node: nodeCommand,
         version,
+        autoKimi: manifest.autoKimi,
         upstreamCommit: manifest.upstreamCommit,
         mainSha256: manifest.mainSha256,
         launcherSha256: sha256(script),
@@ -553,7 +580,8 @@ export async function install(options = {}) {
       const restorations = [];
       if (receiptChanged)
         restorations.push(async () => {
-          if (receiptBefore === undefined) await rm(receiptPath, { force: true });
+          if (receiptBefore === undefined)
+            await rm(receiptPath, { force: true });
           else await atomicWrite(receiptPath, receiptBefore, 0o600);
         });
       if (launcherChanged)
@@ -601,7 +629,9 @@ export async function install(options = {}) {
       if (committedReceipt === undefined)
         throw new AggregateError(cleanupErrors, 'Installation cleanup failed');
       const warning = cleanupErrors
-        .map((error) => (error instanceof Error ? error.message : String(error)))
+        .map((error) =>
+          error instanceof Error ? error.message : String(error),
+        )
         .join('; ');
       committedReceipt.cleanupWarning = warning;
       try {

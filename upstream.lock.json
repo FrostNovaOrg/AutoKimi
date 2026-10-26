@@ -5,5 +5,8 @@
   "version": "2.3.0",
   "node": "24.15.0",
   "pnpm": "10.33.0",
-  "patches": ["patches/native-review.patch"]
+  "patches": [
+    "patches/native-review.patch",
+    "patches/security-dependencies.patch"
+  ]
 }

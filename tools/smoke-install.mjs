@@ -41,19 +41,40 @@ two_stage = true
 policy = "preserve this fixture policy"
 `,
   );
-  const packagePath = await preparePackage(join(root, 'runtime'), values.source, {
-    lock,
-  });
+  const packagePath = await preparePackage(
+    join(root, 'runtime'),
+    values.source,
+    {
+      lock,
+    },
+  );
   const first = await install({
     package: packagePath,
     home,
     lock,
     'timeout-ms': '90000',
   });
-  assert.equal(
-    execFileSync(first.launcher, ['--version'], { encoding: 'utf8' }).trim(),
-    lock.version,
-  );
+  const identity = execFileSync(first.launcher, ['--version'], {
+    encoding: 'utf8',
+  });
+  assert.match(identity, /AutoKimi 0\.2\.0/);
+  assert.ok(identity.includes('Kimi ' + lock.version));
+  for (const args of [
+    ['-p', 'task'],
+    ['--prompt=task'],
+    ['--continue', '-p', 'task'],
+    ['acp'],
+    ['web'],
+    [],
+  ]) {
+    try {
+      execFileSync(first.launcher, args, { encoding: 'utf8', stdio: 'pipe' });
+      assert.fail('Headless entry must fail');
+    } catch (error) {
+      assert.equal(error.status, 2);
+      assert.match(String(error.stderr), /Use native kimi/);
+    }
+  }
   assert.match(
     execFileSync(first.launcher, ['update', '--help'], {
       encoding: 'utf8',

@@ -154,7 +154,10 @@ test('records the complete launcher hash in the installation receipt', async (t)
   const f = await fixture(t);
   const receipt = await install(f);
   const { sha256 } = await import('../tools/common.mjs');
-  assert.equal(receipt.launcherSha256, sha256(await readFile(receipt.launcher)));
+  assert.equal(
+    receipt.launcherSha256,
+    sha256(await readFile(receipt.launcher)),
+  );
 });
 
 test('rejects special permission bit changes before updating config', async (t) => {
@@ -197,10 +200,7 @@ test('refuses unmanaged launchers without changing config', async (t) => {
   const f = await fixture(t);
   await writeFile(join(f.home, 'bin', 'autokimi'), 'unmanaged\n');
   await assert.rejects(install(f), /not managed/);
-  assert.deepEqual(
-    await readJson(join(f.home, 'config.toml')),
-    f.config,
-  );
+  assert.deepEqual(await readJson(join(f.home, 'config.toml')), f.config);
 });
 
 for (const [path, error] of [
@@ -216,10 +216,7 @@ for (const [path, error] of [
       await writeFile(join(f.package, path), 'modified\n');
       await assert.rejects(install(f), error);
       assert.equal(existsSync(join(f.home, 'bin', 'autokimi')), false);
-      assert.deepEqual(
-        await readJson(join(f.home, 'config.toml')),
-        f.config,
-      );
+      assert.deepEqual(await readJson(join(f.home, 'config.toml')), f.config);
     },
   );
 }
@@ -268,9 +265,7 @@ test('uses a new release when only dependency contents change', async (t) => {
   );
   const second = await install({ ...f, package: packagePath });
   assert.notEqual(second.distribution, first.distribution);
-  const receipt = await readJson(
-    join(f.home, 'autokimi', 'installation.json'),
-  );
+  const receipt = await readJson(join(f.home, 'autokimi', 'installation.json'));
   assert.equal(receipt.distribution, second.distribution);
   const entrypoint = join(second.distribution, 'dist', 'main.mjs').replaceAll(
     "'",
@@ -311,7 +306,10 @@ test('atomically replaces a hardlinked receipt without modifying its other targe
   const installed = await install(f);
   assert.equal(installed.officialCommandUnchanged, true);
   assert.equal(await readFile(official, 'utf8'), 'official command sentinel\n');
-  assert.equal((await readJson(receiptPath)).distribution, installed.distribution);
+  assert.equal(
+    (await readJson(receiptPath)).distribution,
+    installed.distribution,
+  );
 });
 
 test('copies a symlinked package root into a self-contained release', async (t) => {
@@ -320,11 +318,11 @@ test('copies a symlinked package root into a self-contained release', async (t) 
   await symlink(f.package, alias);
   const receipt = await install({ ...f, package: alias });
   await rm(f.package, { recursive: true, force: true });
-  assert.equal(
+  assert.match(
     execFileSync(receipt.launcher, ['--version'], {
       encoding: 'utf8',
     }).trim(),
-    '2.3.0',
+    /AutoKimi 0\.2\.0[\s\S]*Kimi 2\.3\.0/,
   );
 });
 
@@ -342,9 +340,7 @@ test('serializes concurrent installs into one consistent release', async (t) => 
   const f = await fixture(t);
   const [first, second] = await Promise.all([install(f), install(f)]);
   assert.equal(first.distribution, second.distribution);
-  const receipt = await readJson(
-    join(f.home, 'autokimi', 'installation.json'),
-  );
+  const receipt = await readJson(join(f.home, 'autokimi', 'installation.json'));
   assert.equal(receipt.distribution, second.distribution);
   assert.equal((await readdir(join(f.home, 'autokimi', 'releases'))).length, 1);
   assert.equal(existsSync(join(f.home, 'autokimi', 'install.lock')), false);
@@ -391,7 +387,9 @@ test('returns a committed install with a warning when lock cleanup fails', async
   const receipt = await install(f);
   assert.match(receipt.cleanupWarning, /EISDIR|EPERM|directory/);
   assert.equal(
-    JSON.parse(execFileSync(receipt.launcher, ['ordinary'], { encoding: 'utf8' })).args[0],
+    JSON.parse(
+      execFileSync(receipt.launcher, ['ordinary'], { encoding: 'utf8' }),
+    ).args[0],
     'ordinary',
   );
   const persisted = await readJson(
@@ -403,7 +401,10 @@ test('returns a committed install with a warning when lock cleanup fails', async
     await readFile(join(f.home, 'bin', 'kimi'), 'utf8'),
     'official command sentinel\n',
   );
-  assert.equal((await readJson(join(f.home, 'config.toml'))).experimental.approval_review, true);
+  assert.equal(
+    (await readJson(join(f.home, 'config.toml'))).experimental.approval_review,
+    true,
+  );
 });
 
 test('does not release a caller-owned installation lock', async (t) => {
@@ -435,11 +436,13 @@ test('stores an absolute Node path when PATH contains a relative entry', async (
   assert.equal(await realpath(receipt.node), await realpath(process.execPath));
 });
 
-test('packages the build kit and routes update and upgrade to the follow tool', async (t) => {
+test('packages the build kit and routes updates through fresh project source', async (t) => {
   const f = await fixture(t);
   const receipt = await install(f);
   for (const path of [
     'build-kit/tools/follow-upstream.mjs',
+    'build-kit/tools/update-project.mjs',
+    'build-kit/.autokimi-project.json',
     'build-kit/tools/upstream-candidate.mjs',
     'build-kit/upstream.lock.json',
     'build-kit/overlay',
