@@ -32,6 +32,7 @@ let reviews = 0;
 let requests = 0;
 let hold = true;
 let networkAttempts = 0;
+let shellToolResults;
 const activeRuns = new Set();
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -52,6 +53,8 @@ const server = createServer(async (request, response) => {
   const transcript = JSON.stringify(body.messages);
   const completedTools =
     body.messages?.filter((message) => message.role === 'tool').length ?? 0;
+  if (transcript.includes('CASE_SHELL') && completedTools > 0)
+    shellToolResults = body.messages.filter((message) => message.role === 'tool');
   const chunk = (delta, finishReason = null) =>
     response.write(
       'data: ' +
@@ -480,12 +483,19 @@ try {
   assert.equal(networkAttempts, 0);
   assert.equal(existsSync(join(cwd, 'network-marker')), false);
   const waiting = await detach('CASE_SHELL', 'stop-shell');
-  await wait(
-    waiting.run_id,
-    () =>
-      existsSync(join(cwd, 'child.pid')) &&
-      existsSync(join(cwd, 'child.heartbeat')),
-  );
+  try {
+    await wait(
+      waiting.run_id,
+      () =>
+        existsSync(join(cwd, 'child.pid')) &&
+        existsSync(join(cwd, 'child.heartbeat')),
+    );
+  } catch (error) {
+    throw new Error(
+      'Sandboxed workspace command failed: ' + JSON.stringify(shellToolResults),
+      { cause: error },
+    );
+  }
   const childPid = Number(await readFile(join(cwd, 'child.pid'), 'utf8'));
   assert.equal((await call(['runs', 'stop', waiting.run_id])).code, 0);
   assert.equal((await wait(waiting.run_id)).reason, 'cancelled');

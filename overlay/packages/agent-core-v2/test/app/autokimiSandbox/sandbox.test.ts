@@ -16,6 +16,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AutoKimiSandbox,
   protectedShellPaths,
+  shellSandboxEnvironment,
+  waitForShellSandboxShutdown,
 } from '#/app/autokimiSandbox/sandbox';
 
 const roots: string[] = [];
@@ -30,9 +32,67 @@ function fixture() {
   mkdirSync(cwd);
   return { home, cwd };
 }
-afterEach(() => {
+afterEach(async () => {
+  await waitForShellSandboxShutdown();
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
+});
+
+it('scrubs inherited credentials and loader hooks without removing fresh proxy credentials', () => {
+  const inherited = {
+    PATH: '/usr/bin:/bin',
+    API_KEY: 'synthetic-key',
+    SRT_PROXY_TOKEN: 'old-token',
+    LD_AUDIT: '/synthetic/loader',
+    DYLD_ROOT_PATH: '/synthetic/root',
+    BASH_ENV: '/synthetic/startup',
+    NODE_OPTIONS: '--require /synthetic/startup',
+  };
+  const env = shellSandboxEnvironment(
+    { ...inherited, SRT_PROXY_TOKEN: 'new-token' },
+    inherited,
+  );
+  expect(env).toEqual({
+    PATH: '/usr/bin:/bin',
+    API_KEY: '',
+    SRT_PROXY_TOKEN: 'new-token',
+    LD_AUDIT: '',
+    DYLD_ROOT_PATH: '',
+    BASH_ENV: '',
+    NODE_OPTIONS: '',
+  });
+});
+
+it('refuses user commands when the installed backend fails its actual startup check', async () => {
+  const { home, cwd } = fixture();
+  const initialize = vi
+    .spyOn(SandboxManager, 'initialize')
+    .mockResolvedValue(undefined);
+  const wrap = vi
+    .spyOn(SandboxManager, 'wrapWithSandboxArgv')
+    .mockResolvedValue({ argv: ['/usr/bin/false'], env: {} });
+  const sandbox = new AutoKimiSandbox(
+    { homeDir: home } as IBootstrapService,
+    { get: () => ({}) } as unknown as IConfigService,
+  );
+  try {
+    await expect(
+      sandbox.wrap(
+        'printf synthetic-user-command',
+        cwd,
+        '/bin/sh',
+        new AbortController().signal,
+        false,
+      ),
+    ).rejects.toThrow('shell was not started');
+    expect(wrap).toHaveBeenCalledTimes(1);
+    expect(wrap.mock.calls[0]![0]).toBe('/usr/bin/true');
+  } finally {
+    sandbox.dispose();
+    await waitForShellSandboxShutdown();
+    wrap.mockRestore();
+    initialize.mockRestore();
+  }
 });
 
 describe('shell boundary discovery', () => {

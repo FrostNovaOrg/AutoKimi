@@ -66,4 +66,6 @@
 
 ## Shell sandbox unavailable / shell was not started
 
+运行时在首次执行用户 shell 前，会先在实际沙箱中运行无副作用的命令自检。后端已安装不代表能启动；启动失败会拒绝执行，并记入无头任务的权限拒绝，请检查返回的后端错误。AutoKimi 不会在沙箱外重试。
+
 Linux 检查 `/usr/bin/bwrap`、`/usr/bin/socat`、`/usr/bin/rg` 和用户命名空间支持；沙箱被容器或主机策略禁止时不会降级。macOS 检查系统 `sandbox-exec` 是否可用。受保护目录存在硬链接或不可解析链接时，先检查并由可信用户处理别名。网络失败时只授权任务所需的 `shell_allowed_domains`；无头模式还需 `--allow-network`。构建工具的工作区外缓存或链接工作树共享 Git 目录可能被拒绝，由父编排器处理或使用项目缓存。配置默认变化与可信 TUI 的显式兼容开关见[配置说明](configuration.md#shell-系统沙箱031)。

@@ -34,9 +34,9 @@ jobs:
       - run: npm install --global pnpm@10.33.0
       - run: npm test && npm run check
       - run: npm run build
+      - run: npm run test:headless
       - run: npm run test:upstream
       - run: npm run test:install
-      - run: npm run test:headless
       - run: npm run package:release
       - id: attest
         uses: actions/attest@b60c2628ab941b449db82e38ba8d500980ce8a54

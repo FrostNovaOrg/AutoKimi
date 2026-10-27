@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lstatSync, readlinkSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import {
   SandboxManager,
   type SandboxRuntimeConfig,
@@ -28,6 +30,26 @@ const names = new Set([
   '.kimi-code',
 ]);
 const literal = (path: string) => ({ path, literal: true as const });
+const execute = promisify(execFile);
+
+export function shellSandboxEnvironment(
+  wrapped: NodeJS.ProcessEnv,
+  inherited = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of new Set([
+    ...Object.keys(inherited),
+    ...Object.keys(wrapped),
+  ]))
+    env[key] =
+      /^(?:LD_|DYLD_)/.test(key) ||
+      ['BASH_ENV', 'ENV', 'NODE_OPTIONS'].includes(key) ||
+      (/(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY)/i.test(key) &&
+        wrapped[key] === inherited[key])
+        ? ''
+        : (wrapped[key] ?? '');
+  return env;
+}
 
 export function protectedShellPaths(
   workDir: string,
@@ -133,6 +155,7 @@ export const IAutoKimiSandbox =
 export class AutoKimiSandbox extends Disposable {
   declare readonly _serviceBrand: undefined;
   private registered = false;
+  private verification: Promise<void> | undefined;
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
@@ -270,6 +293,38 @@ export class AutoKimiSandbox extends Disposable {
       enableWeakerNestedSandbox: false,
       allowNestedUserNamespaces: false,
     };
+    this.verification ??= (async () => {
+      const probe = await SandboxManager.wrapWithSandboxArgv(
+        '/usr/bin/true',
+        shell,
+        config,
+        signal,
+        workDir,
+      );
+      try {
+        await execute(probe.argv[0]!, probe.argv.slice(1), {
+          cwd: workDir,
+          env: shellSandboxEnvironment(probe.env),
+          signal,
+          timeout: 5000,
+          killSignal: 'SIGKILL',
+          maxBuffer: 16384,
+          encoding: 'utf8',
+        });
+      } catch (error) {
+        const failure = error as { stderr?: string; code?: string | number };
+        const detail =
+          failure.stderr?.trim().slice(-2048) ||
+          String(failure.code ?? 'startup check failed');
+        throw new Error(
+          'AutoKimi sandbox unavailable; shell was not started: ' + detail,
+        );
+      } finally {
+        SandboxManager.cleanupAfterCommand();
+      }
+    })();
+    await this.verification;
+    signal.throwIfAborted();
     const grant = () =>
       SandboxManager.registerCommandNetworkLists(identifier, {
         allowedDomains: networkGranted ? settings.shellAllowedDomains : [],
@@ -284,32 +339,16 @@ export class AutoKimiSandbox extends Disposable {
         { commandId: identifier },
       );
       grant();
-      const env: Record<string, string> = {};
-      for (const key of new Set([
-        ...Object.keys(process.env),
-        ...Object.keys(wrapped.env),
-      ]))
-        env[key] =
-          /(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY)/i.test(
-            key,
-          ) && wrapped.env[key] === process.env[key]
-            ? ''
-            : (wrapped.env[key] ?? '');
-      for (const key of [
-        'BASH_ENV',
-        'ENV',
-        'NODE_OPTIONS',
-        'LD_PRELOAD',
-        'LD_LIBRARY_PATH',
-        'DYLD_LIBRARY_PATH',
-        'DYLD_FALLBACK_LIBRARY_PATH',
-        'DYLD_INSERT_LIBRARIES',
-      ])
-        env[key] = '';
+      let cleaned = false;
       return {
         argv: wrapped.argv,
-        env,
-        cleanup: () => SandboxManager.unregisterCommandNetworkLists(identifier),
+        env: shellSandboxEnvironment(wrapped.env),
+        cleanup: () => {
+          if (cleaned) return;
+          cleaned = true;
+          SandboxManager.unregisterCommandNetworkLists(identifier);
+          SandboxManager.cleanupAfterCommand();
+        },
       };
     } catch (error) {
       SandboxManager.unregisterCommandNetworkLists(identifier);

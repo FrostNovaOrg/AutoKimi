@@ -66,4 +66,6 @@ Inspect `autokimi runs status <run-id> --json`; query success does not establish
 
 ## Shell sandbox unavailable / shell was not started
 
+Each runtime checks the real sandbox with a harmless command before starting user shell work. An installed binary alone does not prove the backend can launch. Startup failure denies shell execution and appears in the headless task's permission denials; inspect the reported backend error. AutoKimi does not retry outside the sandbox.
+
 On Linux, check `/usr/bin/bwrap`, `/usr/bin/socat`, `/usr/bin/rg` and user-namespace support. Container or host restrictions do not trigger a downgrade. On macOS, check system `sandbox-exec`. Inspect protected hardlinks or unresolved links and have a trusted user resolve aliases. Allow only required `shell_allowed_domains`; headless tasks also need `--allow-network`. External caches and linked-worktree shared Git metadata may be denied; use project caches or the parent orchestrator. See [configuration](configuration.md#shell-os-sandbox-031) for changed defaults and the trusted-TUI compatibility setting.
