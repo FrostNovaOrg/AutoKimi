@@ -39,7 +39,9 @@ jobs:
       - run: npm install --global pnpm@10.33.0
       - run: npm test && npm run check
       - run: npm run build
-      - run: npm run test:headless
+      - name: Test installed headless runtime and isolated Node toolchain
+        run: |
+          AUTOKIMI_SMOKE_NODE_SOURCE="$(node -p 'require("node:path").dirname(require("node:path").dirname(process.execPath))')" npm run test:headless
       - run: npm run test:upstream
       - run: npm run test:install
       - run: npm run package:release

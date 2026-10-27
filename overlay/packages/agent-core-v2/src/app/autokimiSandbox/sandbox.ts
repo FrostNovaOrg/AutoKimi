@@ -257,7 +257,10 @@ export class AutoKimiSandbox extends Disposable {
         managedNode,
       )
     )
-      readableTools.push(join(nodeRoot, 'lib', 'node_modules', 'npm'));
+      readableTools.push(
+        join(nodeRoot, 'bin'),
+        join(nodeRoot, 'lib', 'node_modules', 'npm'),
+      );
     const identifier = randomBytes(16).toString('base64url');
     if (!this.registered) {
       users++;

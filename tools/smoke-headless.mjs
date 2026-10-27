@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { install, preparePackage } from './install.mjs';
@@ -21,9 +21,18 @@ const cliOption = process.argv.indexOf('--cli');
 let shellNode = process.execPath;
 if (process.env.AUTOKIMI_SMOKE_NODE_SOURCE) {
   const source = resolve(process.env.AUTOKIMI_SMOKE_NODE_SOURCE);
-  const nodeRoot = join(home, 'autokimi', 'tools', basename(source));
+  const version = (
+    await exec(join(source, 'bin', 'node'), ['-p', 'process.version'])
+  ).stdout.trim();
+  assert.match(version, /^v[0-9]+\.[0-9]+\.[0-9]+$/);
+  const nodeRoot = join(
+    home,
+    'autokimi',
+    'tools',
+    `node-${version}-${process.platform}-${process.arch}`,
+  );
   await mkdir(join(home, 'autokimi', 'tools'), { recursive: true });
-  await cp(source, nodeRoot, { recursive: true });
+  await cp(source, nodeRoot, { recursive: true, verbatimSymlinks: true });
   shellNode = join(nodeRoot, 'bin', 'node');
 }
 let command = shellNode;
@@ -55,7 +64,9 @@ const server = createServer(async (request, response) => {
   const completedTools =
     body.messages?.filter((message) => message.role === 'tool').length ?? 0;
   if (transcript.includes('CASE_SHELL') && completedTools > 0)
-    shellToolResults = body.messages.filter((message) => message.role === 'tool');
+    shellToolResults = body.messages.filter(
+      (message) => message.role === 'tool',
+    );
   const probeName = transcript.match(/CASE_SANDBOX_(HOME|LINK|CHILD|NET)/)?.[1];
   if (probeName && completedTools > 0)
     probeToolResults.set(
@@ -157,6 +168,8 @@ const server = createServer(async (request, response) => {
           name: 'Bash',
           args: {
             command:
+              shellQuote(join(dirname(shellNode), 'npm')) +
+              ' --userconfig=./.fixture-npmrc --globalconfig=./.fixture-global-npmrc --cache=./.fixture-npm-cache --version >/dev/null && ' +
               shellQuote(shellNode) +
               ' -e ' +
               shellQuote(
