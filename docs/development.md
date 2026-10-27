@@ -7,6 +7,7 @@
 ```sh
 npm test
 npm run check
+npm run check:history
 npm run build
 npm run test:upstream
 npm run test:install
@@ -56,3 +57,11 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 候选更新、项目源码获取、安装回执和失败状态见 [安装说明](installation.md#更新)。
 
 源码预算为 608 KiB，覆盖冻结依赖补丁、TUI 确认及安装回归；缓存、依赖和运行包仍不得入库。
+
+## 发布前的仓库审计
+
+在完整 Git 检出中运行 `npm run check:history`，扫描所有可达分支和标签的提交、历史文件与常见敏感格式；浅克隆会被拒绝。可追加 `-- --pattern MODEL_IDENTIFIER` 检查某个标识，匹配忽略大小写；`--all-objects` 额外包含本地不可达对象。工具只报告对象、路径和规则，不输出文件正文。历史检查不代表远端缓存或其他副本已被清理。
+
+发布前另用全新 mirror 克隆核验远端 refs，并复核 GitHub 描述、Topics、Issue/PR 和附件。运行包、用户配置、凭据、会话和原始评测不得入 Git。若发现真实凭据，应先撤销，再评估历史清理；不要只删除当前文件。
+
+当前源码保持 npm 的 `private: true` 以防误发布，不影响 GitHub 开源。发布产物流程见 [安装文档](installation.md#维护者打包-release)。平台未实测的部分需如实说明；CI 可在仓库公开后另行验证。

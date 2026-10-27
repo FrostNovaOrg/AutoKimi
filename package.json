@@ -17,10 +17,19 @@
     "package:runtime": "node tools/install.mjs --prepare .artifacts/runtime",
     "install:local": "node tools/install.mjs",
     "test:install": "node tools/smoke-install.mjs",
-    "package:release": "node tools/package-release.mjs"
+    "package:release": "node tools/package-release.mjs",
+    "check:history": "node tools/check-history.mjs"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/FrostNovaOrg/AutoKimi.git"
-  }
+  },
+  "description": "Model-based tool permission review for the Kimi Code native terminal UI.",
+  "keywords": [
+    "kimi-code",
+    "ai-agent",
+    "tui",
+    "tool-permissions",
+    "auto-review"
+  ]
 }

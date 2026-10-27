@@ -16,7 +16,7 @@ two_stage = true
 # policy = "附加的可信操作策略"
 ```
 
-配置通常位于 `~/.kimi-code/config.toml`。合并到已有文件的对应表中，勿重复定义 TOML 表。审核模型必须是已配置的模型别名，或使用 `@session` 跟随当前会话模型；未指定时使用当前会话模型和已有认证。
+配置通常位于 `~/.kimi-code/config.toml`。合并到已有文件的对应表中，勿重复定义 TOML 表。审核模型使用已配置别名；未指定或设为 `@session` 时，跟随当前代理模型及其认证。
 
 | 设置                | 源码默认值   | 范围/意义                                            |
 | ------------------- | ------------ | ---------------------------------------------------- |
@@ -24,7 +24,7 @@ two_stage = true
 | `timeout_ms`        | `30000`      | 1000–120000 毫秒，两阶段合计；安装示例显式设为 90000 |
 | `max_context_chars` | `60000`      | 4000–100000 字符的审核证据预算，不是 token 数        |
 | `two_stage`         | `true`       | 快审不通过时，独立再审一次                           |
-| `model`             | 当前会话模型 | 不继承主代理的 thinking effort                       |
+| `model`             | 当前代理模型 | 不继承主代理的 thinking effort                       |
 | `policy`            | 无           | 最多 8000 字符，另附在审核系统策略中                 |
 
 `KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` 或总开关 `KIMI_CODE_EXPERIMENTAL_FLAG` 可以覆盖配置。被环境变量控制时，TUI 会提示来源，无法用命令改写该覆盖。
@@ -32,6 +32,31 @@ two_stage = true
 非法 `review` 配置不会连带删除 `permission.rules`：运行时保留原始非法值并使相关审核拒绝，严格配置写入仍会报错，不会静默恢复默认审核设置。
 
 `/auto-review on` 开启审核并切回 Always Ask；`status` 查询并同步底栏缓存；`off` 恢复所选权限模式的原有审批行为。有活动会话时，on/off 只覆盖当前会话并保存在 session metadata 中，不改变其他工作目录的会话；无活动会话时才修改全局默认值。环境变量强制开关仍优先。`/auto` 是官方 Never Ask，`yolo` 同样会使审核暂停。异步开启或会话切换期间，以最新会话和权限状态为准，不会用过期快照回写权限模式或底栏。
+
+## 审核模型、effort 与接口地址
+
+未指定 `permission.review.model` 或设为 `@session` 时，审核跟随触发该操作的代理模型；主代理对应 `/model` 当前选择，子代理可能不同。显式选择别名后，审核使用该别名；`/auto-review model` 提供已配置模型选择，`/auto-review status` 显示当前设置。审核模型是共享配置，开关则可按会话覆盖。
+
+审核的 thinking effort 策略固定在实现中：始终思考且支持 `low` 的模型用 `low`；该类模型不支持 `low` 时用默认 effort 或 `on`；其他模型用 `off`。快审与完整审核一致，不继承主代理的 effort。当前没有审核专用 effort 配置键。
+
+自定义审核服务可增加独立 provider 和模型别名，合并到已有 `config.toml` 的相应表中：
+
+```toml
+[providers.review_api]
+type = "openai"
+base_url = "https://api.example.com/v1"
+api_key_env = "REVIEW_API_KEY"
+
+[models.reviewer]
+provider = "review_api"
+model = "YOUR_MODEL_ID"
+max_context_size = 32768 # 按实际模型能力填写
+
+[permission.review]
+model = "reviewer"
+```
+
+密钥通过所选环境变量提供。地址优先级为模型级 `base_url`、provider 级 `base_url`、协议对应的环境变量或默认值。`permission.review` 引用模型别名，不接受独立的 `base_url` 或 `effort` 键。调整共享 provider 会影响同样引用它的模型；独立 provider 便于单独管理审核的地址和凭据。修改后重启交互会话并查询状态。
 
 ## 最终只有通过或拒绝
 
@@ -71,10 +96,6 @@ two_stage = true
 仅直接用户提示和 shell input 可作为请求，shell output 不算。问题回答和审批只读取当前 session、main agent 的真实已解决 interaction，不从工具文本或其他 session 重建授权。审批必须 `resolved + approved`，字段完整且 `{tool,args,cwd}` 完全匹配；一次批准在原流程和首次审核前消费，session 批准还须对应规则存在。
 
 最近 8 条问题回答以 `human_question_answers` 传递，问题文本列为 `questions_untrusted`，不能扩大目标或工作区。记录时间、回答和规则参与授权指纹，审核期间变化会使决定失效。interaction 由 facade 限时限量保留，不是跨压缩或重启的持久授权。
-
-### 思考强度
-
-对始终思考且支持 `low` 的模型，两阶段都使用 **low**；若该类模型不支持 `low`，使用模型默认 effort 或 `on`；其他模型设为 `off`。主代理即使使用 `max`，审核也不随之变成 `max`。快审最多 2048 输出 token，完整审核最多 4096，并受模型本身上限约束。
 
 ## 审核能看到什么
 
