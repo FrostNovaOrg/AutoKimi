@@ -2,6 +2,7 @@ import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IConfigService } from '#/app/config/config';
 import {
+  chmodSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
@@ -16,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AutoKimiSandbox,
   protectedShellPaths,
+  requiredSandboxHelper,
   shellSandboxEnvironment,
   waitForShellSandboxShutdown,
 } from '#/app/autokimiSandbox/sandbox';
@@ -36,6 +38,19 @@ afterEach(async () => {
   await waitForShellSandboxShutdown();
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
+});
+
+it('requires the pinned Linux seccomp executable rather than using a weaker or global fallback', () => {
+  const { cwd } = fixture();
+  expect(() => requiredSandboxHelper(cwd, 'linux')).toThrow('seccomp helper');
+  const directory = join(cwd, 'vendor', 'seccomp', process.arch);
+  mkdirSync(directory, { recursive: true });
+  const helper = join(directory, 'apply-seccomp');
+  writeFileSync(helper, 'synthetic executable fixture', { mode: 0o600 });
+  expect(() => requiredSandboxHelper(cwd, 'linux')).toThrow('seccomp helper');
+  chmodSync(helper, 0o700);
+  expect(requiredSandboxHelper(cwd, 'linux')).toBe(helper);
+  expect(requiredSandboxHelper(cwd, 'darwin')).toBeUndefined();
 });
 
 it('scrubs inherited credentials and loader hooks without removing fresh proxy credentials', () => {

@@ -1,6 +1,14 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lstatSync, readlinkSync, readdirSync, realpathSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  lstatSync,
+  readlinkSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +39,23 @@ const names = new Set([
 ]);
 const literal = (path: string) => ({ path, literal: true as const });
 const execute = promisify(execFile);
+
+export function requiredSandboxHelper(
+  root: string,
+  platform = process.platform,
+): string | undefined {
+  if (platform !== 'linux') return undefined;
+  const path = join(root, 'vendor', 'seccomp', process.arch, 'apply-seccomp');
+  try {
+    accessSync(path, constants.X_OK);
+    if (!statSync(path).isFile()) throw new Error('Not a regular executable');
+  } catch {
+    throw new Error(
+      'AutoKimi sandbox unavailable; the pinned seccomp helper is missing or not executable; shell was not started',
+    );
+  }
+  return path;
+}
 
 export function shellSandboxEnvironment(
   wrapped: NodeJS.ProcessEnv,
@@ -209,6 +234,7 @@ export class AutoKimiSandbox extends Disposable {
         fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime')),
       ),
     );
+    const seccompHelper = requiredSandboxHelper(sandboxRoot);
     const denyWrite = [
       ...protectedShellPaths(workDir, home, runtimeTargets),
       dirname(
@@ -247,6 +273,7 @@ export class AutoKimiSandbox extends Disposable {
               process.platform === 'linux' ? '/usr/bin/bwrap' : undefined,
             socatPath:
               process.platform === 'linux' ? '/usr/bin/socat' : undefined,
+            seccomp: seccompHelper ? { applyPath: seccompHelper } : undefined,
             ripgrep: {
               command:
                 process.platform === 'linux' ? '/usr/bin/rg' : '/usr/bin/false',

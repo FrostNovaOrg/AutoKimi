@@ -70,4 +70,6 @@
 
 Ubuntu 24.04+ 可能允许 bubblewrap 本身，却阻止 `apply-seccomp` 使用嵌套命名空间。请由主机管理员参照[上游环境要求](https://github.com/anthropics/sandbox-runtime#platform-specific-dependencies)评估命名空间策略；AutoKimi 不会修改主机安全策略。CI 参照上游自身的集成环境，仅在一次性 runner 中启用具有所需权限的用户命名空间，运行时仍限制文件、网络、socket 及后续嵌套命名空间。这不能代表所有主机默认策略均兼容。
 
+本轮 Ubuntu 26.04 runner 在启用上述环境条件后，固定版本 0.0.81 仍拒绝启动 `apply-seccomp`。AutoKimi 返回权限拒绝，用户命令没有启动。Linux 集成验证固定在 Ubuntu 24.04；Ubuntu 26.04 的 shell 支持尚未通过验证。见[相关上游报告](https://github.com/anthropics/sandbox-runtime/issues/498)。
+
 Linux 检查 `/usr/bin/bwrap`、`/usr/bin/socat`、`/usr/bin/rg` 和用户命名空间支持；沙箱被容器或主机策略禁止时不会降级。macOS 检查系统 `sandbox-exec` 是否可用。受保护目录存在硬链接或不可解析链接时，先检查并由可信用户处理别名。网络失败时只授权任务所需的 `shell_allowed_domains`；无头模式还需 `--allow-network`。构建工具的工作区外缓存或链接工作树共享 Git 目录可能被拒绝，由父编排器处理或使用项目缓存。配置默认变化与可信 TUI 的显式兼容开关见[配置说明](configuration.md#shell-系统沙箱031)。

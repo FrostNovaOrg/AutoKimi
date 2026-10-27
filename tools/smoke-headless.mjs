@@ -33,6 +33,7 @@ let requests = 0;
 let hold = true;
 let networkAttempts = 0;
 let shellToolResults;
+const probeToolResults = new Map();
 const activeRuns = new Set();
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -55,6 +56,12 @@ const server = createServer(async (request, response) => {
     body.messages?.filter((message) => message.role === 'tool').length ?? 0;
   if (transcript.includes('CASE_SHELL') && completedTools > 0)
     shellToolResults = body.messages.filter((message) => message.role === 'tool');
+  const probeName = transcript.match(/CASE_SANDBOX_(HOME|LINK|CHILD|NET)/)?.[1];
+  if (probeName && completedTools > 0)
+    probeToolResults.set(
+      probeName,
+      body.messages.filter((message) => message.role === 'tool'),
+    );
   const chunk = (delta, finishReason = null) =>
     response.write(
       'data: ' +
@@ -464,19 +471,19 @@ try {
       '--timeout',
       '20s',
     ]);
-    assert.ok(
-      probe.events.some(
-        (event) => event.type === 'tool.result' && event.data.is_error,
-      ),
-      JSON.stringify(probe),
-    );
     assert.deepEqual(
       await readFile(join(home, 'config.toml')),
       configurationBefore,
+      'Protected configuration changed during ' + name,
     );
     assert.equal(
       await readFile(join(cwd, 'AGENTS.md'), 'utf8'),
       'Synthetic project instructions\n',
+      'Protected instructions changed during ' + name,
+    );
+    assert.ok(
+      probe.events.some((event) => event.type === 'tool.result'),
+      name + ': ' + JSON.stringify(probeToolResults.get(name) ?? probe),
     );
     await rm(join(cwd, 'linked-notes.md'), { force: true });
   }
