@@ -69,7 +69,7 @@ autokimi exec --resume <run-id> --prompt 'Choose A and continue the original tas
 autokimi exec --session <session-id> --prompt-file next-task.txt --cwd /path/to/project
 ```
 
-Only `resumable: true` permits continuation. Explicitly increase every exhausted cap. A resume cannot change the workspace or model, or expand network capability; read-only restrictions can only tighten. Counters, the denial window and native session carry forward. Safety stops and ordinary runtime errors do not automatically retry. `--session` creates a new task, whose new scope requires caller authorization. Concurrent writers to the same session are rejected.
+Only `resumable: true` permits continuation. Explicitly increase every exhausted cap. A resume cannot change the workspace or model, or expand network capability; read-only restrictions can only tighten. Counters, the denial window and native session carry forward. Safety stops and ordinary runtime errors do not automatically retry. `--session` creates a new task, whose new scope requires caller authorization. Concurrent writers to the same session are rejected. Separate session locks do not serialize workspace writes; the orchestrator should give parallel coding tasks independent worktrees or directories.
 
 A lost worker becomes `interrupted/worker_lost`. Recovery uses native SDK history rather than manufacturing a conversation from assistant text. If an unfinished tool is recorded, inspect files, child processes and external effects before passing `--accept-uncertain-effects`. This acknowledgment neither rolls back nor automatically replays tools.
 

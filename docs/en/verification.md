@@ -8,6 +8,8 @@
 
 ## Recorded results
 
+The complete AutoKimi 0.3.0 [Linux x64 CI run](https://github.com/FrostNovaOrg/AutoKimi/actions/runs/40463972815) passed on 2026-10-27 with pinned Node 24.15.0 and pnpm 10.33.0: 76/76 repository tests, 813/813 runtime tests, 12/12 message-flow cases, four type checks, the no-comments guard, full build, isolated installation and the new headless smoke test.
+
 AutoKimi 0.3.0 (Kimi 2.3.3) passed on macOS ARM64: 76/76 repository tests, 813/813 runtime tests across 37 files, 12/12 targeted message-flow cases, four TypeScript projects, the no-comments guard and a full rebuild from the pinned baseline. Real-package isolated installation and reinstallation passed. Headless end-to-end checks cover reviewed file writes, read-only restrictions, denial reporting, idempotency, cursors, cumulative budgets and same-session continuation, cancellation and shell-child cleanup, blocked input, enforced review and crash recovery. These smoke tests do not establish real-provider compatibility or model decision quality.
 
 AutoKimi 0.2.2 (Kimi 2.3.3): 74/74 repository tests, 793/793 related runtime tests across 35 files, and 12/12 message-flow cases passed, along with four TypeScript projects, frozen-dependency build, source checks and the no-comments guard. New cases cover complete approval details, confirmation defaulting to Cancel, Space/Kitty keys, submission acknowledgment and failure retry, and reviewer model selection. TUI lint had no errors and retained one existing upstream warning.

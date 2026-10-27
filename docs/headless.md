@@ -69,7 +69,7 @@ autokimi exec --resume <run-id> --prompt '选择 A，继续原任务'
 autokimi exec --session <session-id> --prompt-file next-task.txt --cwd /path/to/project
 ```
 
-仅 `resumable: true` 可续跑。已耗尽的任一上限必须显式提高；工作目录、模型和网络能力不能在续跑时扩大，只读限制只能收紧。计数、拒绝窗口和原生 session 都继承。安全停轮及普通运行错误不自动重试。`--session` 创建新任务，调用者须明确授权其新范围，且不能并发写同一个 session。
+仅 `resumable: true` 可续跑。已耗尽的任一上限必须显式提高；工作目录、模型和网络能力不能在续跑时扩大，只读限制只能收紧。计数、拒绝窗口和原生 session 都继承。安全停轮及普通运行错误不自动重试。`--session` 创建新任务，调用者须明确授权其新范围，且不能并发写同一个 session。不同 session 的锁不互斥工作区；并行写代码时由编排器提供独立工作树或目录。
 
 worker 丢失时标为 `interrupted/worker_lost`。恢复使用原生 SDK 历史，不复制助手文本伪造会话。如果记录中有未完成工具，先检查文件、子进程和外部效果，再显式传 `--accept-uncertain-effects`；该标志只确认已检查，不会回滚或自动重放工具。
 
