@@ -120,7 +120,7 @@ For old MCP OAuth credentials without an `issuer`, AutoKimi requires login again
 
 ## Shell OS sandbox (0.3.1)
 
-Bash uses the pinned `@anthropic-ai/sandbox-runtime` by default: Seatbelt on macOS and `/usr/bin/bwrap`, `/usr/bin/socat` and `/usr/bin/rg` on Linux. Unavailable sandboxes refuse the command without falling back. The wrapper starts restricted argv directly, keeping shell startup files and descendants inside the boundary.
+Bash uses the pinned `@anthropic-ai/sandbox-runtime` by default: Seatbelt on macOS and `/usr/bin/bwrap`, `/usr/bin/socat` and `/usr/bin/rg` on Linux, with the pinned bundled seccomp helper required to be executable. The app directly spawns the trusted runtime's wrapper argv and verifies backend startup before interpreting user commands inside the sandbox. Inherited startup hooks and loader injection variables are scrubbed. Unavailable sandboxes refuse execution without falling back.
 
 ```toml
 [permission.review]

@@ -71,6 +71,6 @@ Candidates verify the CDN version, Git tag, npm SHA-512, signatures and provenan
 
 ## OS sandbox and file sinks
 
-`autokimiSandbox` wraps the final Bash command as restricted argv, without an unrestricted outer shell by default. The pinned Anthropic runtime manages Seatbelt/bubblewrap and network proxies; the parent holds policy, domains and lifecycle. SDK shutdown awaits proxy cleanup. Permission failures never trigger an automatic unsandboxed retry. Model services, file tools and MCP sit outside this shell boundary.
+`autokimiSandbox` directly spawns the argv returned by the pinned Anthropic runtime. The runtime generates a trusted host wrapper and passes escaped user-command data to Seatbelt/bubblewrap for interpretation inside the sandbox. Inherited shell startup hooks, loader injection variables and common secret variables are scrubbed before spawning. The parent holds policy, domains and proxy lifecycle; SDK shutdown awaits cleanup. Permission failures never trigger an automatic unsandboxed retry. Model services, file tools and MCP sit outside this shell boundary.
 
 `reviewSafeWrite` lives in the local filesystem backend, so plan and allow-rule shortcuts still reject multi-link files. Full writes validate and atomically replace rather than truncating the old inode; appends use verified descriptors. Review evidence includes current file identity, avoiding dependence on the historical-action window to infer aliases.

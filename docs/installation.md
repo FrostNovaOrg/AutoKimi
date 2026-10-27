@@ -7,7 +7,7 @@
 在终端执行：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a867a8b555fac880f13e37dda37c11/install.sh | sh -s -- --revision fa6df64ae9a867a8b555fac880f13e37dda37c11
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/30e5c1d5ca21fe1289e902fd9158c07f4f40828a/install.sh | sh -s -- --revision 30e5c1d5ca21fe1289e902fd9158c07f4f40828a
 ```
 
 安装脚本支持 macOS/Linux 的 ARM64 和 x64；macOS ARM64 已实测，Linux x64 已通过 CI 构建、回归和隔离安装，终端交互尚待实测。需要 curl、tar，源码路径还需要 Git。默认从显式可信的 AutoKimi 提交构建，Kimi 版本由锁文件固定。指定 `--version` 时才尝试对应平台运行包，并在 `SHA256SUMS` 之外验证绑定该提交的 GitHub 构建证明。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
@@ -26,6 +26,8 @@ sh install.sh --timeout-ms 90000
 `--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建 `--revision` 指定的提交并核对版本。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会启用审核并切回 Always Ask；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
 
 ## 构建并安装
+
+Linux shell 需要在指定系统路径安装 bubblewrap、socat、ripgrep，并允许沙箱创建所需用户命名空间。Ubuntu 24.04+ 可能需要主机管理员配置，见[故障排查](troubleshooting.md)。运行时无法建立隔离时会拒绝执行。
 
 先完成官方 Kimi 登录或模型配置。使用 Node.js ≥24.15.0 和 pnpm 10.33.0；若已有不同版本，可用自己的 Node 版本管理工具安装，或将 `AUTOKIMI_PNPM` 指向指定版本的 pnpm 可执行文件。
 

@@ -120,7 +120,7 @@ AutoKimi 开放交互 TUI、显式 `exec` 无头任务及已列出的管理命�
 
 ## Shell 系统沙箱（0.3.1）
 
-Bash 默认通过固定版本的 `@anthropic-ai/sandbox-runtime` 执行。macOS 使用 Seatbelt，Linux 使用 `/usr/bin/bwrap`、`/usr/bin/socat` 和 `/usr/bin/rg`。沙箱不可用时拒绝该命令，不回退到普通 shell；外层包装器直接启动受限 argv，shell 启动文件和子进程也处于边界内。
+Bash 默认通过固定版本的 `@anthropic-ai/sandbox-runtime` 执行。macOS 使用 Seatbelt，Linux 使用 `/usr/bin/bwrap`、`/usr/bin/socat` 和 `/usr/bin/rg`，并要求随包固定的 seccomp 辅助程序可执行。应用直接启动可信运行时生成的包装器 argv，先验证后端确实能启动，再在沙箱内解释用户命令。继承的启动脚本和动态加载注入变量会被清除；沙箱不可用时拒绝执行，不回退到普通 shell。
 
 ```toml
 [permission.review]

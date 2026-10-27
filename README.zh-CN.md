@@ -32,12 +32,14 @@ TUI 中原有 allow/deny 规则先执行，审核器接收待审批操作。无�
 
 Linux x64 CI 已通过构建、回归和隔离安装检查，详见[验证记录](docs/verification.md)。
 
+Linux shell 还要求主机允许沙箱创建所需用户命名空间。Ubuntu 24.04+ 的限制可能需要管理员配置，见[故障排查](docs/troubleshooting.md)。
+
 ## 安装
 
 已在 macOS ARM64 上验证；安装器支持 macOS/Linux 的 ARM64、x64，Linux x64 已通过 CI 检查。一键安装：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a867a8b555fac880f13e37dda37c11/install.sh | sh -s -- --revision fa6df64ae9a867a8b555fac880f13e37dda37c11
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/30e5c1d5ca21fe1289e902fd9158c07f4f40828a/install.sh | sh -s -- --revision 30e5c1d5ca21fe1289e902fd9158c07f4f40828a
 ```
 
 一键命令固定安装脚本及 AutoKimi 提交，并从固定 Kimi 基线构建；不再自动执行可变 main。指定 `--version` 获取运行包时，必须通过绑定仓库、工作流和提交的 GitHub 构建证明；本地包须提供独立可信的 `--sha256`。需要 curl 和 tar；源码构建还需要 Git，会下载精确版本的 pnpm，首次构建可能占用数 GB。缺少 Node.js ≥24.15.0 时，脚本将 Node 安装到 AutoKimi 独立目录。安装后显示启动命令和 PATH 指引。Linux 的 shell 沙箱需要 `/usr/bin/bwrap`、`/usr/bin/socat` 和 `/usr/bin/rg`，Debian/Ubuntu 可安装 `bubblewrap socat ripgrep`。macOS 使用系统 Seatbelt。
@@ -47,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a86
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
 cd AutoKimi
-git checkout --detach fa6df64ae9a867a8b555fac880f13e37dda37c11
+git checkout --detach 30e5c1d5ca21fe1289e902fd9158c07f4f40828a
 npm run build
 npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
