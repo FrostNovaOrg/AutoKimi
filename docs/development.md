@@ -19,7 +19,7 @@ npm run test:install
 
 `build` 准备源码、冻结安装依赖、构建内部包和 CLI。`test:upstream` 在生成源码上运行审核、CLI、MCP OAuth、上游模型设置等相关测试文件及 message-flow 定向用例，检查引擎、SDK、TUI 的 TypeScript，并执行引擎无注释检查。测试使用隔离配置目录，不调用真实模型。`test:install` 用实际构建的运行包和合成配置验证完整安装、设置保留、启动与重复安装。pnpm 版本以锁文件为准；可通过 `AUTOKIMI_PNPM` 指定可执行路径。测试的 `TMPDIR` 应使用 Git 工作树之外的系统临时目录；若放进仓库，某些测试写入会命中工作树规则而绕过待审核路径，不能据此证明审核被触发。
 
-仓库配置了推送和 PR 的轻量 CI 检查及补丁应用验证，手动触发可选完整构建和原生接入回归。目前验证结果来自本地运行，GitHub Actions 尚未验证。CI 不读取 Kimi 登录信息，也不会发布运行包。
+仓库配置了推送和 PR 的轻量 CI 检查及补丁应用验证，手动触发可选完整构建和原生接入回归。GitHub Actions 已在 Linux x64 上通过完整工作流，详见[验证记录](verification.md)。CI 不读取 Kimi 登录信息，也不会发布运行包。
 
 ## 修改源码
 

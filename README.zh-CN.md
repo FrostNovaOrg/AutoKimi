@@ -21,16 +21,18 @@ Model-based tool permission review for the Kimi Code native terminal UI.
 
 审核仅接收原权限系统交给它的操作，原有 allow/deny 规则仍先执行。它不提供操作系统隔离，也不能保证模型永不误判。只支持交互 TUI，自动化、ACP 和 Web 服务请使用原生 Kimi。
 
-| 项目                 | 当前状态                                  |
-| -------------------- | ----------------------------------------- |
-| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                             |
-| 构建依赖             | Node.js ≥24.15.0；pnpm 10.33.0            |
-| 已实测               | macOS ARM64：构建、TUI 回归及两种安装路径 |
-| 待验证               | Linux、x64 的完整运行体验；Windows 不支持 |
+| 项目                 | 当前状态                                     |
+| -------------------- | -------------------------------------------- |
+| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                                |
+| 构建依赖             | Node.js ≥24.15.0；pnpm 10.33.0               |
+| 已实测               | macOS ARM64：构建、TUI 回归及两种安装路径    |
+| 待验证               | Linux 终端交互及其他平台组合；Windows 不支持 |
+
+Linux x64 CI 已通过构建、回归和隔离安装检查，详见[验证记录](docs/verification.md)。
 
 ## 安装
 
-已在 macOS ARM64 上验证；安装器支持 macOS/Linux 的 ARM64、x64，其他组合尚待实测。一键安装：
+已在 macOS ARM64 上验证；安装器支持 macOS/Linux 的 ARM64、x64，Linux x64 已通过 CI 检查。一键安装：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh

@@ -19,7 +19,7 @@ The first two commands require only Node and Git. Isolated tests cover source re
 
 `build` prepares source, installs frozen dependencies and builds internal packages and the CLI. `test:upstream` runs relevant review, CLI, MCP OAuth and upstream model-setting tests plus targeted message-flow cases against generated source. It checks TypeScript for engine, SDK and TUI and enforces comment-free engine code. Tests use isolated configuration without real model calls. `test:install` uses an actual built runtime and synthetic settings to verify installation, setting preservation, startup and reinstall. The lock file determines pnpm; `AUTOKIMI_PNPM` can select an executable. Set test `TMPDIR` to a system temporary directory outside the Git worktree. Inside the repository, some writes may match worktree permission rules and bypass pending review, so passing tests would not prove the reviewer ran.
 
-The repository defines lightweight push/PR CI checks and patch-application validation, with optional full build and native integration tests on manual dispatch. Current validation results come from local runs; GitHub Actions has not been validated. CI does not read Kimi login data or publish runtime packages.
+The repository defines lightweight push/PR CI checks and patch-application validation, with optional full build and native integration tests on manual dispatch. The complete workflow has passed on Linux x64 in GitHub Actions; see the [verification record](verification.md). CI does not read Kimi login data or publish runtime packages.
 
 ## Editing source
 

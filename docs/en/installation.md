@@ -10,7 +10,7 @@ Run in a terminal:
 curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
 ```
 
-The script supports macOS/Linux on ARM64 and x64; macOS ARM64 has been tested. It requires curl and tar, plus Git for source builds. It prefers a GitHub Release package matching the Node platform and architecture, verifies `SHA256SUMS`, then runs the included installer. If no package is published, it builds from `main`, with the Kimi version still pinned by the project's lock file. Download or checksum failures stop installation. Source builds download the exact pnpm version, without requiring a global installation.
+The script supports macOS/Linux on ARM64 and x64; macOS ARM64 has been tested. Linux x64 has passed CI build, regression and isolated installation checks; terminal interaction still needs manual testing. It requires curl and tar, plus Git for source builds. It prefers a GitHub Release package matching the Node platform and architecture, verifies `SHA256SUMS`, then runs the included installer. If no package is published, it builds from `main`, with the Kimi version still pinned by the project's lock file. Download or checksum failures stop installation. Source builds download the exact pnpm version, without requiring a global installation.
 
 If Node.js ≥24.15.0 is unavailable, the script verifies an official Node package checksum and installs it under `<home>/autokimi/tools/`, leaving system Node unchanged. The home directory is selected from `AUTOKIMI_HOME`, `KIMI_CODE_HOME`, then `~/.kimi-code`; `--home` takes precedence. The script prints the launch path and required PATH command without editing shell configuration. Keep the selected Node path in place.
 

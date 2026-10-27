@@ -21,16 +21,18 @@ When a tool operation requires approval, the reviewer uses the user's authorizat
 
 Existing allow/deny rules run first. The reviewer only receives actions passed to it by the permission system. It provides no operating system isolation, and models can make incorrect decisions. AutoKimi supports interactive TUI sessions; use native Kimi for automation, ACP and Web services.
 
-| Item                 | Current status                                                       |
-| -------------------- | -------------------------------------------------------------------- |
-| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                                                        |
-| Build requirements   | Node.js ≥24.15.0; pnpm 10.33.0                                       |
-| Tested               | macOS ARM64: build, TUI regression tests and both installation paths |
-| Pending validation   | Full Linux and x64 experience; Windows is unsupported                |
+| Item                 | Current status                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                                                                      |
+| Build requirements   | Node.js ≥24.15.0; pnpm 10.33.0                                                     |
+| Tested               | macOS ARM64: build, TUI regression tests and both installation paths               |
+| Pending validation   | Linux terminal interaction and other platform combinations; Windows is unsupported |
+
+Linux x64 CI has passed build, regression and isolated installation checks; see the [verification record](docs/en/verification.md).
 
 ## Installation
 
-The installer supports macOS/Linux on ARM64 and x64. macOS ARM64 has been tested; other combinations still need testing. Run:
+The installer supports macOS/Linux on ARM64 and x64. macOS ARM64 has been tested interactively; Linux x64 has passed CI checks. Run:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh

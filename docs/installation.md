@@ -10,7 +10,7 @@
 curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
 ```
 
-安装脚本支持 macOS/Linux 的 ARM64 和 x64；当前实测 macOS ARM64。需要 curl、tar，源码路径还需要 Git。优先使用 GitHub Release 中与 Node 平台和架构匹配的运行包，核对 `SHA256SUMS`，再调用随包安装器；无发布包时自动从 `main` 构建，Kimi 版本仍由项目锁文件固定。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
+安装脚本支持 macOS/Linux 的 ARM64 和 x64；macOS ARM64 已实测，Linux x64 已通过 CI 构建、回归和隔离安装，终端交互尚待实测。需要 curl、tar，源码路径还需要 Git。优先使用 GitHub Release 中与 Node 平台和架构匹配的运行包，核对 `SHA256SUMS`，再调用随包安装器；无发布包时自动从 `main` 构建，Kimi 版本仍由项目锁文件固定。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
 
 缺少 Node.js ≥24.15.0 时，脚本校验官方 Node 包摘要并安装到 `<home>/autokimi/tools/`，不修改系统 Node。默认 HOME 使用 `AUTOKIMI_HOME`、`KIMI_CODE_HOME`、`~/.kimi-code`；`--home` 优先。脚本不改 shell 配置，完成后打印启动路径和需要的 PATH 命令。不要移动安装器选择的 Node 路径。
 
