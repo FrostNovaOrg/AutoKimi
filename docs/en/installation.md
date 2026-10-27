@@ -18,8 +18,8 @@ From a local checkout, these installation options are available:
 
 ```sh
 sh install.sh --source
-sh install.sh --version v0.2.2
-sh install.sh --package /path/to/autokimi-v0.2.2-darwin-arm64.tar.gz --home /path/to/kimi-home
+sh install.sh --version v0.3.0
+sh install.sh --package /path/to/autokimi-v0.3.0-darwin-arm64.tar.gz --home /path/to/kimi-home
 sh install.sh --timeout-ms 90000
 ```
 

@@ -1,3 +1,4 @@
+import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
@@ -133,6 +134,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ILogService private readonly log: ILogService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
   ) {}
 
   isEnabled(): boolean {
@@ -220,11 +222,13 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
           );
         const initialAuthorization = readAuthorization();
         const rootRevision = rootMemory.prefixRevision();
-        oneTimeApproval = this.consumeOneTimeApproval(
-          initialAuthorization.grants,
-          fingerprint,
-          rootRevision,
-        );
+        oneTimeApproval = this.headless?.active
+          ? undefined
+          : this.consumeOneTimeApproval(
+              initialAuthorization.grants,
+              fingerprint,
+              rootRevision,
+            );
         humanApproval = this.consumeHumanApproval(
           initialAuthorization.humanApprovals,
           fingerprint,
@@ -426,7 +430,11 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       for (const record of this.denialChallenges.values())
         if (record.fingerprint === fingerprint)
           this.denialChallenges.delete(record.toolCallId);
-    } else if (decision.source === 'model' && decision.risk !== 'critical') {
+    } else if (
+      !this.headless?.active &&
+      decision.source === 'model' &&
+      decision.risk !== 'critical'
+    ) {
       challenge = this.registerDenialChallenge(
         context,
         fingerprint,
@@ -449,6 +457,16 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
             sequence: ++this.denialSequence,
             denials: [...this.denialChallenges.values()],
           },
+    );
+    if (decision.decision === 'deny')
+      this.headless?.reportDenial(
+        context.toolCall.id,
+        context.toolCall.name,
+        decision.reason,
+      );
+    this.headless?.review(
+      countsTowardStop(safetyDecision),
+      decision.decision === 'allow',
     );
     if (decision.decision === 'allow') return { kind: 'approve' };
     return {

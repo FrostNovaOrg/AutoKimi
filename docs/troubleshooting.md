@@ -59,3 +59,7 @@
 ## 缓存提示 local edits 或 Overlay changed
 
 准备器会保护已生成源码内的修改。把需要的修改同步到 overlay/补丁并备份后，再用新的 `--worktree` 还原，或自行清理旧生成目录。不要通过删除状态标记强制复用不一致的源码。
+
+## 无头调用结束但任务未完成
+
+用 `autokimi runs status <run-id> --json` 检查状态；查询成功不是任务完成。`completed_with_denials` 需要检查 `permission_denials`，`blocked_input` 需要明确回答后续跑，`stopped` 需要检查预算或取消原因。不能自动绕过拒绝或重置预算。`worker_lost` 先检查未完成工具效果，再按[无头恢复流程](headless.md)处理。`submission_busy`、`run_busy`、`session_busy` 是锁冲突，使用相同幂等键退避重试，不能删除活跃锁。安装后没有 `exec` 入口时，先检查运行版本是否至少为 0.3.0。

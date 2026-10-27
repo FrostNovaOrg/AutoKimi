@@ -13,6 +13,7 @@ npm run check:history
 npm run build
 npm run test:upstream
 npm run test:install
+npm run test:headless
 ```
 
 前两项仅依赖 Node 和 Git：隔离测试覆盖源码还原、缓存保护、安装包、启动脚本、配置合并与仓库守卫。`check` 同时检查未忽略的新文件，阻止依赖、生成物、常见密钥格式、本机用户路径和失效的相对文档链接，并限制源码总量。
@@ -57,7 +58,7 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 
 候选更新、项目源码获取、安装回执和失败状态见 [安装说明](installation.md#更新)。
 
-源码预算为 672 KiB，覆盖冻结依赖补丁、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
+源码预算为 832 KiB，覆盖冻结依赖补丁、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
 
 ## 发布前的仓库审计
 
@@ -66,3 +67,5 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 发布前另用全新 mirror 克隆核验远端 refs，并复核 GitHub 描述、Topics、Issue/PR 和附件。运行包、用户配置、凭据、会话和原始评测不得入 Git。若发现真实凭据，应先撤销，再评估历史清理；不要只删除当前文件。
 
 当前源码保持 npm 的 `private: true` 以防误发布，不影响 GitHub 开源。发布产物流程见 [安装文档](installation.md#维护者打包-release)。平台未实测的部分需如实说明；CI 的实际运行结果须另行核实，不得用本地结果代替。
+
+`test:headless` 使用实际安装包和本地模拟模型服务，验证幂等、事件游标、真实文件工具审核、权限拒绝、累计预算续跑、取消与子进程清理、输入阻塞和 worker 崩溃恢复，不调用真实付费模型。手动完整 CI 同时运行此烟测。

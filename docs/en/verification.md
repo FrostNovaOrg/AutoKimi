@@ -4,9 +4,11 @@
 
 ## Method
 
-`npm test` validates repository tools with temporary installation directories and synthetic configuration. `npm run check` checks source content and size. Runtime changes also require `npm run test:upstream`, covering review, permissions, SDK, TUI, targeted message flows, TypeScript and the no-comments guard. `npm run test:install` verifies a real runtime package in a synthetic home.
+`npm test` validates repository tools with temporary installation directories and synthetic configuration. `npm run check` checks source content and size. Runtime changes also require `npm run test:upstream`, covering review, permissions, SDK, TUI, targeted message flows, TypeScript and the no-comments guard. `npm run test:install` verifies a real runtime package in a synthetic home. `npm run test:headless` validates the installed headless protocol through a local mock model service, without paid model calls.
 
 ## Recorded results
+
+AutoKimi 0.3.0 (Kimi 2.3.3) passed on macOS ARM64: 76/76 repository tests, 813/813 runtime tests across 37 files, 12/12 targeted message-flow cases, four TypeScript projects, the no-comments guard and a full rebuild from the pinned baseline. Real-package isolated installation and reinstallation passed. Headless end-to-end checks cover reviewed file writes, read-only restrictions, denial reporting, idempotency, cursors, cumulative budgets and same-session continuation, cancellation and shell-child cleanup, blocked input, enforced review and crash recovery. These smoke tests do not establish real-provider compatibility or model decision quality.
 
 AutoKimi 0.2.2 (Kimi 2.3.3): 74/74 repository tests, 793/793 related runtime tests across 35 files, and 12/12 message-flow cases passed, along with four TypeScript projects, frozen-dependency build, source checks and the no-comments guard. New cases cover complete approval details, confirmation defaulting to Cancel, Space/Kitty keys, submission acknowledgment and failure retry, and reviewer model selection. TUI lint had no errors and retained one existing upstream warning.
 

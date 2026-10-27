@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
-import { rejectHeadlessServer, restrictToInteractiveTui } from '#/cli/interactive-only';
+import {
+  rejectHeadlessServer,
+  restrictToInteractiveTui,
+} from '#/cli/interactive-only';
 
 function entry(stdin = true, stdout = true) {
   const run = vi.fn();
@@ -13,25 +16,45 @@ function entry(stdin = true, stdout = true) {
     .option('-c, --continue')
     .version('test')
     .action(run);
-  for (const name of ['acp', 'web', 'app', 'future-agent']) program.command(name).action(run);
+  for (const name of ['acp', 'web', 'app', 'future-agent'])
+    program.command(name).action(run);
   program.command('session').command('list').action(admin);
-  restrictToInteractiveTui(program, { stdin: { isTTY: stdin }, stdout: { isTTY: stdout } });
+  program.command('exec').action(admin);
+  program.command('runs').command('status').action(admin);
+  restrictToInteractiveTui(program, {
+    stdin: { isTTY: stdin },
+    stdout: { isTTY: stdout },
+  });
   return { program, run, admin };
 }
 
 describe('AutoKimi interactive entry boundary', () => {
   it.each([
-    ['-p', 'task'], ['--prompt=task'], ['-ptask'],
-    ['--session', 'previous', '-p', 'continue'], ['--continue', '--prompt', 'task'],
-    ['acp'], ['web'], ['app'], ['future-agent'],
+    ['-p', 'task'],
+    ['--prompt=task'],
+    ['-ptask'],
+    ['--session', 'previous', '-p', 'continue'],
+    ['--continue', '--prompt', 'task'],
+    ['acp'],
+    ['web'],
+    ['app'],
+    ['future-agent'],
   ])('rejects agent entry %j before starting it', (...args) => {
     const { program, run } = entry();
-    expect(() => program.parse(args, { from: 'user' })).toThrow(/Use native kimi/);
+    expect(() => program.parse(args, { from: 'user' })).toThrow(
+      /Use native kimi/,
+    );
     expect(run).not.toHaveBeenCalled();
   });
-  it.each([[false, true], [true, false], [false, false]])('rejects missing terminal %j %j', (stdin, stdout) => {
+  it.each([
+    [false, true],
+    [true, false],
+    [false, false],
+  ])('rejects missing terminal %j %j', (stdin, stdout) => {
     const { program, run } = entry(stdin, stdout);
-    expect(() => program.parse([], { from: 'user' })).toThrow(/Use native kimi/);
+    expect(() => program.parse([], { from: 'user' })).toThrow(
+      /Use native kimi/,
+    );
     expect(run).not.toHaveBeenCalled();
   });
   it('allows interactive sessions and metadata commands without a terminal', () => {
@@ -41,6 +64,14 @@ describe('AutoKimi interactive entry boundary', () => {
     const metadata = entry(false, false);
     metadata.program.parse(['session', 'list'], { from: 'user' });
     expect(metadata.admin).toHaveBeenCalledOnce();
+  });
+  it('allows only the explicit headless task and query entries without a terminal', () => {
+    for (const args of [['exec'], ['runs', 'status']]) {
+      const { program, admin, run } = entry(false, false);
+      program.parse(args, { from: 'user' });
+      expect(admin).toHaveBeenCalledOnce();
+      expect(run).not.toHaveBeenCalled();
+    }
   });
   it('keeps help and version available without a terminal', () => {
     for (const args of [['--help'], ['--version'], ['web', '--help']]) {

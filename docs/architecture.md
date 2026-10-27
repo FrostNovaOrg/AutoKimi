@@ -23,7 +23,7 @@ flowchart TD
 
 ## 引擎与证据
 
-`overlay/packages/agent-core-v2/src/agent/approvalReview/` 实现审核；`patches/native-review.patch` 接入待审批入口并载入配置权限规则。直接通过、拒绝及业务确认沿用上游语义。
+`overlay/packages/agent-core-v2/src/agent/approvalReview/` 实现审核；`patches/native-review.patch` 接入待审批入口并载入配置权限规则。TUI 的直接通过、拒绝及业务确认沿用上游语义。无头模式的附加策略见下文。
 
 只有根代理的真实请求、shell input、已验证审批和回答提供授权；assistant、摘要、委派、hook、工具结果和 shell output 不能授权。关联 `Read` 与有限验证输出只是不可信行为证据，分页、截断及未知脚本不能证明安全。动作和当前授权不静默截断，缺失或超预算均拒绝。
 
@@ -49,11 +49,19 @@ TUI 校验当前 session、main agent 及完整记录后替换列表，忽略重
 
 ## SDK 与运行包
 
-TUI 通过 SDK 管理审核，不导入引擎服务，不新增公共契约。官方 CLI 的普通钩子不能解决核心待审批请求，因此构建独立运行时；`autokimi` 保留官方 `kimi`，默认共用账号和配置。其他版本须显式移植验证。
+TUI 通过 SDK 管理审核，不导入引擎服务。官方 CLI 的普通钩子不能解决核心待审批请求，因此构建独立运行时；`autokimi` 保留官方 `kimi`，默认共用账号和配置。其他版本须显式移植验证。
 
 `upstream.lock.json` 固定精确提交。准备器在临时目录应用补丁和 overlay，成功才移入缓存；输入或源码状态变化时拒绝复用。生产打包前再次验证。
 
 运行时、SDK 和生产依赖通过包内相对链接重建。依赖按确定遍历次序编号，保留同名同版本的不同解析节点，标识不含绝对路径。文件、权限和链接共同决定 release。安装复核摘要与版本，在 per-home 锁内更新配置、启动器和回执，失败回滚。摘要不是签名。
+
+## 无头控制层
+
+`patches/headless.patch` 将可选的 per-harness 控制器接入循环、模型请求、工具、权限模式及 SDK。主代理、子代理和审核请求共用累计预算与取消信号；不启用该选项时保留原有行为。CLI 只通过 SDK 创建、恢复和停止 session，不导入引擎内部服务。
+
+CLI 的 `headless/` 维护私有请求、原子状态快照与追加事件日志，独立 worker 执行任务。提交幂等、单任务所有者、单 session 写锁及持久取消指令分开管理；恢复先核对旧 worker 已结束，再从日志恢复状态。原生 SDK 保留 session 历史和自身写锁。
+
+无头模式保留原生 deny，文件能力检查早于原生 allow；有限只读集之外的直接 allow 转入审核。禁用自动目标/定时调度、无人值守一次授权和模式提权。事件协议、预算精度、恢复条件和 Bash 隔离边界见 [无头任务](headless.md)。
 
 ## 上游跟随
 

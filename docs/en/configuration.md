@@ -114,6 +114,6 @@ When space is limited, verification output, historical calls and older reads shr
 
 Session `approval-review.jsonl` records timestamps, tool identifiers, model, verdict, source, duration, fingerprints, denial counters, stop-turn state and authorization-use flags. It excludes raw requests, arguments, answers, interaction IDs, challenges and free-form model reasons. Files use mode `0600`, refuse symlinks and should not be uploaded.
 
-AutoKimi permits interactive sessions and explicitly listed administrative commands. Newly added upstream entry points are denied by default. There is no headless or server-agent entry: `-p/--prompt`, ACP/Web and session startup without an interactive terminal fail. Use native `kimi` instead.
+AutoKimi permits the interactive TUI, explicit `exec` jobs and listed administrative commands. New upstream entries are denied by default. Root `-p/--prompt`, ACP/Web and non-terminal TUI startup still fail. Use the [headless task interface](headless.md) for automation. Headless tasks force Always Ask and review, disable TUI one-time grants and inherit caller budgets across continuation.
 
 For old MCP OAuth credentials without an `issuer`, AutoKimi requires login again instead of reusing their tokens or client secrets. Original storage remains available to native `kimi`; new logins retain authorization-server binding.

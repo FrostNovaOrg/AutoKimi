@@ -4,9 +4,11 @@
 
 ## 验证方式
 
-`npm test` 使用临时安装目录和合成配置验证仓库工具；`npm run check` 检查源码内容与体积。运行时修改还须执行 `npm run test:upstream`，覆盖审核、权限、SDK、TUI、定向消息流、TypeScript 和无注释检查。`npm run test:install` 使用合成 HOME 验证真实运行包。
+`npm test` 使用临时安装目录和合成配置验证仓库工具；`npm run check` 检查源码内容与体积。运行时修改还须执行 `npm run test:upstream`，覆盖审核、权限、SDK、TUI、定向消息流、TypeScript 和无注释检查。`npm run test:install` 使用合成 HOME 验证真实运行包。 `npm run test:headless` 通过本地模拟模型服务验证实际安装包的无头协议，不调用真实付费模型。
 
 ## 历史结果
+
+AutoKimi 0.3.0（Kimi 2.3.3）在 macOS ARM64 通过：仓库 76/76，37 个运行时测试文件 813/813，定向消息流 12/12，四个 TypeScript 项目、无注释检查及从固定基线完整重建。实际运行包的隔离安装/重装通过；无头端到端覆盖真实文件审核、只读限制、权限拒绝报告、幂等、游标、累计预算与同 session 续跑、取消及 shell 子进程清理、输入阻塞、审核强制开启和崩溃恢复。真实 provider 兼容性及模型判断质量未在此烟测中覆盖。
 
 AutoKimi 0.2.2（Kimi 2.3.3）：仓库 74/74，相关运行时 35 个文件 793/793，消息流 12/12，四个 TypeScript 项目、冻结依赖构建、源码检查和无注释检查通过。新增用例覆盖完整审批详情、默认取消的二次确认、空格/Kitty 按键、提交确认与失败重试，以及审核模型选择。TUI Lint 无错误，保留 1 条上游既有警告。
 

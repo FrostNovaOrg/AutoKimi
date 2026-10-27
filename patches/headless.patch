@@ -1,0 +1,302 @@
+diff --git a/packages/agent-core-v2/src/agent/loop/loopService.ts b/packages/agent-core-v2/src/agent/loop/loopService.ts
+index 700fc29..4457556 100644
+--- a/packages/agent-core-v2/src/agent/loop/loopService.ts
++++ b/packages/agent-core-v2/src/agent/loop/loopService.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { randomUUID } from 'node:crypto';
+ import { EventEmitter } from 'node:events';
+ 
+@@ -171,8 +172,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
+     @IAgentProfileService private readonly profile: IAgentProfileService,
+     @IPluginService private readonly plugins: IPluginService,
+     @ISessionRunGate private readonly runGate: ISessionRunGate,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     super();
++    this._register(this.hooks.onWillBeginStep.register('autokimi-headless-budget', async (_ctx, next) => {
++      this.headless?.beforeStep();
++      await next();
++    }));
+     this.states.contributeState(turnKey);
+     this.states.contributeState(loopLastRequestTraceIdKey);
+     this.states.contributeState(loopDisposingKey);
+diff --git a/packages/agent-core-v2/src/agent/permissionGate/permissionGateService.ts b/packages/agent-core-v2/src/agent/permissionGate/permissionGateService.ts
+index c89d7f7..773a789 100644
+--- a/packages/agent-core-v2/src/agent/permissionGate/permissionGateService.ts
++++ b/packages/agent-core-v2/src/agent/permissionGate/permissionGateService.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless, HEADLESS_SAFE_TOOLS } from '#/app/autokimiHeadless/control';
+ import { Service } from '#/_base/di/service';
+ import { LifecycleScope } from '#/app/scopes';
+ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+@@ -25,6 +26,7 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
+     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
+     @ITelemetryService private readonly telemetry: ITelemetryService,
+     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     super();
+     this._register(toolExecutor.onBeforeExecuteTool((event) => this.adjudicate(event)));
+@@ -38,6 +40,11 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
+   }
+ 
+   private async adjudicate(event: BeforeToolExecuteEvent): Promise<void> {
++    const blocked = this.headless?.toolPolicy(event);
++    if (blocked !== undefined) {
++      event.veto({ output: blocked, isError: true });
++      return;
++    }
+     const evaluation = await this.policyService.evaluate(event);
+     if (evaluation === undefined) return;
+     this.telemetry.track2('permission_policy_decision', {
+@@ -50,10 +57,15 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
+       ...evaluation.result.reason,
+     });
+     const { result, policyName } = evaluation;
++    if (result.kind === 'deny') this.headless?.reportDenial(event.toolCall.id, event.toolCall.name, result.message ?? 'Permission rule denied this action.');
+     if (result.kind === 'ask') {
+       event.waitUntil(() => this.toolApproval.requestToolApproval(event, result, policyName));
+       return;
+     }
++    if (result.kind === 'approve' && this.requiresHeadlessReview(event)) {
++      event.waitUntil(() => this.toolApproval.requestToolApproval(event, { kind: 'ask' }, 'autokimi-headless'));
++      return;
++    }
+     if (result.kind === 'approve') {
+       event.pass(result.executionMetadata);
+       return;
+@@ -64,9 +76,15 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
+     }
+   }
+ 
++  private requiresHeadlessReview(context: ResolvedToolExecutionHookContext): boolean {
++    return this.headless?.active === true && !HEADLESS_SAFE_TOOLS.has(context.toolCall.name);
++  }
++
+   async authorize(
+     context: ResolvedToolExecutionHookContext,
+   ): Promise<BeforeExecuteDecision | undefined> {
++    const blocked = this.headless?.toolPolicy(context);
++    if (blocked !== undefined) return { veto: { output: blocked, isError: true } };
+     const evaluation = await this.policyService.evaluate(context);
+     if (evaluation === undefined) return undefined;
+     this.telemetry.track2('permission_policy_decision', {
+@@ -78,6 +96,9 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
+       decision: evaluation.result.kind,
+       ...evaluation.result.reason,
+     });
++    if (evaluation.result.kind === 'deny') this.headless?.reportDenial(context.toolCall.id, context.toolCall.name, evaluation.result.message ?? 'Permission rule denied this action.');
++    if (evaluation.result.kind === 'approve' && this.requiresHeadlessReview(context))
++      return this.toolApproval.requestToolApproval(context, { kind: 'ask' }, 'autokimi-headless');
+     return this.toolApproval.resolvePermissionResolution(
+       evaluation.result,
+       context,
+diff --git a/packages/agent-core-v2/src/agent/permissionMode/permissionModeService.ts b/packages/agent-core-v2/src/agent/permissionMode/permissionModeService.ts
+index c1ccf69..cc10b05 100644
+--- a/packages/agent-core-v2/src/agent/permissionMode/permissionModeService.ts
++++ b/packages/agent-core-v2/src/agent/permissionMode/permissionModeService.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import type { PermissionMode } from '#/agent/permissionPolicy/types';
+ import { Service } from '#/_base/di/service';
+ import { LifecycleScope } from '#/app/scopes';
+@@ -39,6 +40,7 @@ export class AgentPermissionModeService extends Service implements IAgentPermiss
+     @ITelemetryService private readonly telemetry: ITelemetryService,
+     @IAgentStateService private readonly agentState: IAgentStateService,
+     @IBootstrapService bootstrap: IBootstrapService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     super();
+     this.agentState.contributeState(permissionModeKey);
+@@ -53,6 +55,10 @@ export class AgentPermissionModeService extends Service implements IAgentPermiss
+   }
+ 
+   setMode(mode: PermissionMode): void {
++    if (this.headless?.active && mode !== 'manual') {
++      this.headless?.stop('review_disabled');
++      this.headless?.check();
++    }
+     const previousMode = this.mode;
+     const changed = mode !== previousMode;
+     if (!changed && this.agentState.get(permissionModeConfiguredKey)) return;
+diff --git a/packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts b/packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts
+index 764cb2f..f130c08 100644
+--- a/packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts
++++ b/packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { toDisposable } from '#/_base/di/lifecycle';
+ import { LifecycleScope } from '#/app/scopes';
+ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+@@ -158,6 +159,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
+     private readonly resultTruncation: IAgentToolResultTruncationService,
+     @IAgentStateService private readonly states: IAgentStateService,
+     @ILogService private readonly log?: ILogService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     this.states.contributeState(toolExecutorToolCallDupTypesKey);
+     this.states.contributeState(toolExecutorDupTypeTurnIdKey);
+@@ -180,6 +182,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
+     options: ToolExecutorExecuteOptions,
+   ): AsyncIterable<ToolExecutionResult> {
+     if (calls.length === 0) return;
++    const headless = this.headless;
++    if (headless?.active) options = { ...options, signal: AbortSignal.any([options.signal, headless.signal]) };
+     if (options.turnId !== this.dupTypeTurnId) {
+       this.dupTypeTurnId = options.turnId;
+       this.toolCallDupTypes.clear();
+diff --git a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
+index 4109001..c69781e 100644
+--- a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
++++ b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { IAgentTaskService } from '#/agent/task/task';
+ import { resolveAgentTaskConfig } from '#/agent/task/configSection';
+ import { IConfigService } from '#/app/config/config';
+@@ -105,9 +106,11 @@ export class BashTool implements IBashTool {
+     @IAgentTaskService private readonly tasks: IAgentTaskService,
+     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
+     @IConfigService private readonly config: IConfigService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {}
+ 
+   private allowBackground(): boolean {
++    if (this.headless?.active) return false;
+     return (
+       this.toolPolicy.isToolActive('TaskList') &&
+       this.toolPolicy.isToolActive('TaskOutput') &&
+@@ -116,6 +119,7 @@ export class BashTool implements IBashTool {
+   }
+ 
+   private autoBackgroundOnTimeout(): boolean {
++    if (this.headless?.active) return false;
+     return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
+   }
+ 
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts b/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
+index ac132ba..6a273fa 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
+ import {
+   apiKeyEnvMissingMessage,
+@@ -89,6 +90,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
+     @IProtocolAdapterRegistry
+     private readonly protocolRegistry: IProtocolAdapterRegistry,
+     @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     super();
+     this._register(
+@@ -140,7 +142,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
+     const model = this.buildModel(id);
+     const entry: CatalogEntry = {
+       model,
+-      requester: new ModelRequesterImpl(model, this.protocolRegistry),
++      requester: new ModelRequesterImpl(model, this.protocolRegistry, this.headless),
+     };
+     this.cache.set(id, entry);
+     return entry;
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/model-requester-impl.ts b/packages/agent-core-v2/src/llm-adapter/model/model-requester-impl.ts
+index 83cc1cb..1b0e9ee 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/model-requester-impl.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/model-requester-impl.ts
+@@ -1,3 +1,4 @@
++import type { AutoKimiHeadlessControl } from '#/app/autokimiHeadless/control';
+ import * as fs from 'node:fs';
+ import * as nodePath from 'node:path';
+ import { performance, type EventLoopUtilization } from 'node:perf_hooks';
+@@ -67,6 +68,7 @@ export class ModelRequesterImpl implements ModelRequester {
+   constructor(
+     readonly model: Model,
+     private readonly gateway: ModelLlmGateway,
++    private readonly headless?: AutoKimiHeadlessControl,
+   ) {}
+ 
+   private resolve(): ResolvedLlmModel {
+@@ -88,12 +90,14 @@ export class ModelRequesterImpl implements ModelRequester {
+     signal?: AbortSignal,
+     params?: ModelRequestParams,
+   ): AsyncIterable<ModelRequestEvent> {
++    this.headless?.beginRequest();
++    if (this.headless?.active) signal = AbortSignal.any([...(signal === undefined ? [] : [signal]), this.headless.signal]);
+     const queue = new AsyncEventQueue<ModelRequestEvent>();
+     void this.runRequest(input, signal, queue, params).then(
+       () => queue.end(),
+       (error) => queue.fail(error),
+     );
+-    return queue;
++    return this.headless?.active ? this.headless.observe(queue) : queue;
+   }
+ 
+   async uploadVideo(
+diff --git a/packages/agent-core-v2/test/agent/permissionGate/permissionGate.test.ts b/packages/agent-core-v2/test/agent/permissionGate/permissionGate.test.ts
+index 8285720..0b3efdf 100644
+--- a/packages/agent-core-v2/test/agent/permissionGate/permissionGate.test.ts
++++ b/packages/agent-core-v2/test/agent/permissionGate/permissionGate.test.ts
+@@ -1,3 +1,4 @@
++import { AutoKimiHeadlessControl, IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ 
+ import { DisposableStore } from '#/_base/di/lifecycle';
+@@ -85,6 +86,7 @@ describe('AgentPermissionGate', () => {
+     };
+     ix = createServices(disposables, {
+       additionalServices: (reg) => {
++        reg.define(IAutoKimiHeadless, AutoKimiHeadlessControl);
+         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+         reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
+         reg.defineInstance(
+diff --git a/packages/node-sdk/src/sdk-rpc-client-v2.ts b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+index 4051b61..b724d71 100644
+--- a/packages/node-sdk/src/sdk-rpc-client-v2.ts
++++ b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+@@ -1,3 +1,4 @@
++import { AutoKimiHeadlessControl, IAutoKimiHeadless } from '@moonshot-ai/agent-core-v2/app/autokimiHeadless/control';
+ /**
+  * v2 wiring MVP — an `SDKRpcClientBase` backed by the agent-core-v2 engine
+  * (DI × Scope) instead of the v1 `KimiCore` RPC pair. The engine is
+@@ -353,6 +354,7 @@ import {
+ import { SessionEventWiring } from '#/v2/session-wiring';
+ 
+ export interface SDKRpcClientV2Options {
++  readonly headless?: import('@moonshot-ai/agent-core-v2/app/autokimiHeadless/control').HeadlessOptions;
+   readonly homeDir?: string;
+   readonly configPath?: string;
+   readonly identity?: KimiHostIdentity;
+@@ -454,6 +456,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+     });
+ 
+     const identity = assertKimiHostIdentity(this.identity);
++    const headless = new AutoKimiHeadlessControl(options.headless === undefined ? undefined : { ...options.headless, protectedDirs: [...(options.headless.protectedDirs ?? []), this.homeDir] });
+     const { app } = bootstrap(
+       {
+         homeDir: this.homeDir,
+@@ -470,7 +473,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+           uiCapabilities: options.uiCapabilities,
+         },
+       },
+-      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
++      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env })), [IAutoKimiHeadless, headless]],
+     );
+     this.app = app;
+     this.klient = createKlient({ scope: app });
+diff --git a/packages/node-sdk/src/types.ts b/packages/node-sdk/src/types.ts
+index fe3772e..4c374eb 100644
+--- a/packages/node-sdk/src/types.ts
++++ b/packages/node-sdk/src/types.ts
+@@ -215,7 +215,10 @@ export interface PromptSkillActivation {
+   readonly args?: string;
+ }
+ 
++export type { HeadlessOptions, HeadlessLimits, HeadlessUsage, HeadlessState } from '@moonshot-ai/agent-core-v2/app/autokimiHeadless/control';
++
+ export interface KimiHarnessOptions {
++  readonly headless?: import('@moonshot-ai/agent-core-v2/app/autokimiHeadless/control').HeadlessOptions;
+   readonly identity?: KimiHostIdentity | undefined;
+   readonly homeDir?: string | undefined;
+   readonly configPath?: string | undefined;

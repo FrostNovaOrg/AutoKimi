@@ -1,6 +1,6 @@
 {
   "name": "autokimi",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -18,18 +18,21 @@
     "install:local": "node tools/install.mjs",
     "test:install": "node tools/smoke-install.mjs",
     "package:release": "node tools/package-release.mjs",
-    "check:history": "node tools/check-history.mjs"
+    "check:history": "node tools/check-history.mjs",
+    "test:headless": "node tools/smoke-headless.mjs"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/FrostNovaOrg/AutoKimi.git"
   },
-  "description": "Model-based tool permission review for the Kimi Code native terminal UI.",
+  "description": "Model-based permission review for the Kimi Code native TUI and observable headless tasks.",
   "keywords": [
     "kimi-code",
     "ai-agent",
     "tui",
     "tool-permissions",
-    "auto-review"
+    "auto-review",
+    "headless",
+    "agent-orchestration"
   ]
 }

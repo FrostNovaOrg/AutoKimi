@@ -13,6 +13,7 @@ npm run check:history
 npm run build
 npm run test:upstream
 npm run test:install
+npm run test:headless
 ```
 
 The first two commands require only Node and Git. Isolated tests cover source restoration, cache protection, packages, launchers, configuration merging and repository guards. `check` includes unignored new files, rejecting dependencies, generated output, common credential formats, machine-specific home paths and broken relative documentation links. It also enforces a source-size budget.
@@ -57,7 +58,7 @@ Updating official `kimi` does not update AutoKimi. Maintainers explicitly select
 
 See [updates](installation.md#updates) for candidate updates, source fetching, receipts and failure states.
 
-The source budget is 672 KiB, covering frozen-dependency patches, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
+The source budget is 832 KiB, covering frozen-dependency patches, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
 
 ## Repository release audit
 
@@ -66,3 +67,5 @@ Run `npm run check:history` in a complete Git checkout to scan commits and histo
 Before release, verify remote refs with a fresh mirror clone and review GitHub description, Topics, Issues/PRs and attachments. Runtime packages, user configuration, credentials, sessions and raw evaluations must stay out of Git. Revoke exposed credentials first, then assess history cleanup; deleting the current file is insufficient.
 
 The npm `private: true` flag prevents accidental npm publication and does not affect GitHub visibility. See [maintainer Release packages](installation.md#maintainer-release-packages). State untested platforms accurately. Verify actual CI runs separately; local results cannot substitute for them.
+
+`test:headless` uses the actual installed package and a local mock model service to verify idempotency, cursors, reviewed file writes, denials, cumulative-budget continuation, cancellation and child cleanup, blocked input and worker crash recovery. It makes no paid model calls. Manual full CI includes this smoke test.

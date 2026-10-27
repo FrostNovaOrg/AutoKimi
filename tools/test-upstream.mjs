@@ -35,6 +35,8 @@ run(
     'vitest',
     'run',
     'packages/agent-core-v2/test/agent/approvalReview',
+    'packages/agent-core-v2/test/app/autokimiHeadless',
+    'apps/kimi-code/test/cli/headless.test.ts',
     'packages/agent-core-v2/test/agent/questionTools/tools/ask-user.test.ts',
     'packages/agent-core-v2/test/agent/toolApproval',
     'packages/agent-core-v2/test/agent/permissionGate',

@@ -15,7 +15,7 @@ For review mistakes, provide public synthetic requests, tool arguments and the e
 - Put new upstream files in `overlay/` and changes to existing upstream files in `patches/`. Do not commit complete upstream checkouts or generated packages.
 - Pin the exact upstream version, preserve TUI integration through the SDK, and keep official `kimi` independent.
 - Preserve actual permission boundaries. Runtime fixes need tests covering the affected behavior; include validation commands and scope in the change description.
-- Run `npm test`, `npm run check` and `npm run check:history` before committing. Runtime changes also require build, related upstream tests and isolated installation.
+- Run `npm test`, `npm run check` and `npm run check:history` before committing. Runtime changes also require build, related upstream tests, isolated installation and `npm run test:headless`.
 - Follow upstream `write-tui` rules for TUI changes, checking narrow terminals, complete arguments, Kitty keys and cancellation.
 
 Contributions use the MIT license. Retain third-party copyright and license notices. Version changes must also check locks, documentation and platform validation claims.

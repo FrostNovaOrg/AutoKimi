@@ -1,25 +1,26 @@
 diff --git a/apps/kimi-code/src/cli/commands.ts b/apps/kimi-code/src/cli/commands.ts
-index 3ec6511..93ac679 100644
+index 3ec6511..75f7d27 100644
 --- a/apps/kimi-code/src/cli/commands.ts
 +++ b/apps/kimi-code/src/cli/commands.ts
-@@ -3,6 +3,7 @@ import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/
+@@ -3,6 +3,8 @@ import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/
  import { Command, InvalidArgumentError, Option } from 'commander';
  
  import type { CLIOptions } from './options';
 +import { restrictToInteractiveTui } from './interactive-only';
++import { registerHeadlessCommands } from './headless/commands';
  import { registerAcpCommand } from './sub/acp';
  import { registerDoctorCommand } from './sub/doctor';
  import { registerExportCommand } from './sub/export';
-@@ -30,7 +31,7 @@ export function createProgram(
+@@ -30,7 +32,7 @@ export function createProgram(
    onUpdateDownload: UpdateDownloadHandler = () => {},
  ): Command {
    const program = new Command(CLI_COMMAND_NAME)
 -    .description('The Starting Point for Next-Gen Agents')
-+    .description('AutoKimi interactive terminal sessions; use native kimi for headless execution.')
++    .description('AutoKimi terminal sessions and budgeted headless tasks with permission review.')
      .version(version, '-V, --version')
      .allowUnknownOption(false)
      .enablePositionalOptions()
-@@ -64,7 +65,7 @@ export function createProgram(
+@@ -64,7 +66,7 @@ export function createProgram(
      .addOption(
        new Option(
          '-p, --prompt <prompt>',
@@ -28,10 +29,11 @@ index 3ec6511..93ac679 100644
        ),
      )
      .addOption(
-@@ -191,5 +192,6 @@ export function createProgram(
+@@ -191,5 +193,7 @@ export function createProgram(
      onMain(opts);
    });
  
++  registerHeadlessCommands(program, version);
 +  restrictToInteractiveTui(program);
    return program;
  }
@@ -651,10 +653,15 @@ index 046ed8c..080eed2 100644
  
    get sessionApprovalRulePatterns(): readonly string[] {
 diff --git a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
-index 96f36f1..64676f5 100644
+index 96f36f1..01b5ab2 100644
 --- a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
 +++ b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
-@@ -6,6 +6,11 @@ import { LifecycleScope } from '#/app/scopes';
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+ import { randomUUID } from 'node:crypto';
+ 
+@@ -6,6 +7,11 @@ import { LifecycleScope } from '#/app/scopes';
  import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
  import { abortable, isUserCancellation } from '#/_base/utils/abort';
  import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -666,7 +673,7 @@ index 96f36f1..64676f5 100644
  import type {
    ApprovalResponse,
    PermissionPolicyResolution,
-@@ -44,15 +49,19 @@ export interface PermissionApprovalRequestedPayload {
+@@ -44,15 +50,19 @@ export interface PermissionApprovalRequestedPayload {
    readonly action: string;
    readonly display: ToolInputDisplay;
    readonly toolInput: unknown;
@@ -688,7 +695,7 @@ index 96f36f1..64676f5 100644
    readonly decision: 'approved' | 'rejected' | 'cancelled' | 'error';
    readonly scope?: 'session';
    readonly feedback?: string;
-@@ -64,18 +73,26 @@ export class PermissionApprovalResolved extends AgentEvent2<PermissionApprovalRe
+@@ -64,18 +74,27 @@ export class PermissionApprovalResolved extends AgentEvent2<PermissionApprovalRe
    static override readonly type = 'permission.approval.resolved';
    static override readonly observable = true;
  }
@@ -716,10 +723,11 @@ index 96f36f1..64676f5 100644
      @IEventDispatcher private readonly dispatcher: IEventDispatcher,
 +    @IAgentApprovalReviewService
 +    private readonly reviewer: IAgentApprovalReviewService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
    ) {
      super();
    }
-@@ -94,7 +111,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -94,7 +113,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
          return {
            veto: denyToolExecution(
              this.formatDenyMessage(
@@ -729,11 +737,15 @@ index 96f36f1..64676f5 100644
              ),
            ),
          };
-@@ -110,6 +128,53 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -110,6 +130,57 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
      result: Extract<PermissionPolicyResult, { kind: 'ask' }>,
      origin: string,
    ): Promise<BeforeExecuteDecision | undefined> {
-+    const interactiveReview =
++    if (this.headless?.active && !this.reviewer.isEnabled()) {
++      this.headless?.stop('review_disabled');
++      this.headless?.check();
++    }
++    const interactiveReview = !this.headless?.active &&
 +      result.resolveApproval !== undefined &&
 +      ((origin === 'exit-plan-mode-review-ask' &&
 +        context.toolCall.name === 'ExitPlanMode' &&
@@ -783,7 +795,7 @@ index 96f36f1..64676f5 100644
      const name = context.toolCall.name;
      const action = context.execution.description ?? `Approve ${name}`;
      const display =
-@@ -132,6 +197,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -132,6 +203,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
      const approvalContext = {
        ...approvalRequest,
        toolInput: context.args,
@@ -792,7 +804,7 @@ index 96f36f1..64676f5 100644
      } satisfies PermissionApprovalRequestedPayload;
      const startedAt = Date.now();
  
-@@ -142,17 +209,21 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -142,17 +215,21 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
        [INTERACTION_TAG_TOOL_CALL_ID]: context.toolCall.id,
      };
      let response: ApprovalResponse;
@@ -817,7 +829,7 @@ index 96f36f1..64676f5 100644
        context.signal.throwIfAborted();
      } catch (error) {
        if (isUserCancellation(error)) throw error;
-@@ -214,7 +285,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -214,7 +291,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
        approval_surface: display.kind,
        duration_ms: Date.now() - startedAt,
        session_cache_written: sessionApprovalRule !== undefined,
@@ -827,7 +839,7 @@ index 96f36f1..64676f5 100644
        trace_id: context.trace?.traceId,
      });
  
-@@ -225,7 +297,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -225,7 +303,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
  
      if (response.decision === 'approved') return undefined;
      return {
@@ -964,10 +976,15 @@ index ed60e45..eabd383 100644
  
    it('merges the request trace id into question telemetry', async () => {
 diff --git a/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts b/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
-index 3c18d24..18a8350 100644
+index 3c18d24..fed56ef 100644
 --- a/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
 +++ b/packages/agent-core-v2/test/agent/toolApproval/toolApproval.test.ts
-@@ -6,6 +6,10 @@ import type { TestInstantiationService } from '#/_base/di/test';
+@@ -1,3 +1,4 @@
++import { AutoKimiHeadlessControl, IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ 
+ import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
+@@ -6,6 +7,10 @@ import type { TestInstantiationService } from '#/_base/di/test';
  import { UserCancellationError } from '#/_base/utils/abort';
  import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
  import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -978,7 +995,7 @@ index 3c18d24..18a8350 100644
  import type {
    PermissionMode,
    PermissionPolicyResult,
-@@ -14,7 +18,10 @@ import {
+@@ -14,7 +19,10 @@ import {
    IAgentPermissionRulesService,
    type PermissionApprovalResultRecord,
  } from '#/agent/permissionRules/permissionRules';
@@ -990,7 +1007,7 @@ index 3c18d24..18a8350 100644
  import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
  import {
    AgentToolApprovalService,
-@@ -33,12 +40,18 @@ import {
+@@ -33,12 +41,18 @@ import {
  } from '#/agent/interaction/approval';
  import { INTERACTION_TAG_SESSION_ID } from '#/human/interaction/interaction';
  import { interactions } from '#/human/interaction/facade';
@@ -1011,7 +1028,7 @@ index 3c18d24..18a8350 100644
  
  const RETRY_GUIDANCE =
    "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
-@@ -65,7 +78,8 @@ function makeContext(
+@@ -65,7 +79,8 @@ function makeContext(
    return {
      turnId: 1,
      signal: options.signal ?? new AbortController().signal,
@@ -1021,7 +1038,7 @@ index 3c18d24..18a8350 100644
      toolCall,
      toolCalls: [toolCall],
      args,
-@@ -91,6 +105,11 @@ describe('AgentToolApprovalService', () => {
+@@ -91,6 +106,11 @@ describe('AgentToolApprovalService', () => {
    let records: TelemetryRecord[];
    let recorded: PermissionApprovalResultRecord[];
    let eventBus: IEventBus;
@@ -1033,7 +1050,7 @@ index 3c18d24..18a8350 100644
  
    beforeEach(() => {
      disposables = new DisposableStore();
-@@ -98,13 +117,25 @@ describe('AgentToolApprovalService', () => {
+@@ -98,13 +118,26 @@ describe('AgentToolApprovalService', () => {
      mode = 'manual';
      records = [];
      recorded = [];
@@ -1042,6 +1059,7 @@ index 3c18d24..18a8350 100644
 +    consumeApproved = vi.fn();
      ix = createServices(disposables, {
        additionalServices: (reg) => {
++        reg.define(IAutoKimiHeadless, AutoKimiHeadlessControl);
 +        reg.defineInstance(IAgentApprovalReviewService, {
 +          _serviceBrand: undefined,
 +          isEnabled: () => reviewEnabled,
@@ -1060,7 +1078,7 @@ index 3c18d24..18a8350 100644
          reg.defineInstance(IAgentPermissionRulesService, {
            _serviceBrand: undefined,
            rules: [],
-@@ -114,14 +145,17 @@ describe('AgentToolApprovalService', () => {
+@@ -114,14 +147,17 @@ describe('AgentToolApprovalService', () => {
              recorded.push(record);
            },
          });
@@ -1086,7 +1104,7 @@ index 3c18d24..18a8350 100644
          reg.defineInstance(ITelemetryService, recordingTelemetry(records));
          reg.defineInstance(IEventBus, eventBus);
          const dispatcher: IEventDispatcher = {
-@@ -136,7 +170,9 @@ describe('AgentToolApprovalService', () => {
+@@ -136,7 +172,9 @@ describe('AgentToolApprovalService', () => {
        },
        strict: true,
      });
@@ -1097,7 +1115,7 @@ index 3c18d24..18a8350 100644
    });
    afterEach(() => {
      disposables.dispose();
-@@ -149,7 +185,9 @@ describe('AgentToolApprovalService', () => {
+@@ -149,7 +187,9 @@ describe('AgentToolApprovalService', () => {
  
    function useBroker(
      request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
@@ -1108,7 +1126,7 @@ index 3c18d24..18a8350 100644
      const requestSpy = vi.fn(request);
      const seen = new Set<string>();
      disposables.add(
-@@ -162,9 +200,11 @@ describe('AgentToolApprovalService', () => {
+@@ -162,9 +202,11 @@ describe('AgentToolApprovalService', () => {
            })) {
              if (seen.has(pending.id)) continue;
              seen.add(pending.id);
@@ -1123,7 +1141,7 @@ index 3c18d24..18a8350 100644
            }
          }),
        ),
-@@ -188,14 +228,175 @@ describe('AgentToolApprovalService', () => {
+@@ -188,14 +230,175 @@ describe('AgentToolApprovalService', () => {
        IAgentScopeContext,
        makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
      );
@@ -1301,7 +1319,7 @@ index 3c18d24..18a8350 100644
        ).resolves.toBeUndefined();
      });
  
-@@ -225,9 +426,16 @@ describe('AgentToolApprovalService', () => {
+@@ -225,9 +428,16 @@ describe('AgentToolApprovalService', () => {
      it('uses a default reason when a deny has no message', async () => {
        const svc = make();
        await expect(
@@ -1320,7 +1338,7 @@ index 3c18d24..18a8350 100644
        });
      });
  
-@@ -272,7 +480,11 @@ describe('AgentToolApprovalService', () => {
+@@ -272,7 +482,11 @@ describe('AgentToolApprovalService', () => {
        const svc = make();
  
        await expect(
@@ -1333,7 +1351,7 @@ index 3c18d24..18a8350 100644
        ).resolves.toBeUndefined();
  
        expect(request).toHaveBeenCalledTimes(1);
-@@ -287,6 +499,8 @@ describe('AgentToolApprovalService', () => {
+@@ -287,6 +501,8 @@ describe('AgentToolApprovalService', () => {
            toolName: 'Bash',
            action: 'Approve Bash',
            toolInput: { command: 'printf first' },
@@ -1342,7 +1360,7 @@ index 3c18d24..18a8350 100644
            display: {
              kind: 'generic',
              summary: 'Approve Bash',
-@@ -305,6 +519,8 @@ describe('AgentToolApprovalService', () => {
+@@ -305,6 +521,8 @@ describe('AgentToolApprovalService', () => {
            toolName: 'Bash',
            action: 'Approve Bash',
            toolInput: { command: 'printf first' },
@@ -1351,7 +1369,7 @@ index 3c18d24..18a8350 100644
            display: {
              kind: 'generic',
              summary: 'Approve Bash',
-@@ -314,12 +530,33 @@ describe('AgentToolApprovalService', () => {
+@@ -314,12 +532,33 @@ describe('AgentToolApprovalService', () => {
            selectedLabel: 'Approve once',
          }),
        );
@@ -1386,7 +1404,7 @@ index 3c18d24..18a8350 100644
  
        await svc.requestToolApproval(
          makeContext(
-@@ -340,6 +577,9 @@ describe('AgentToolApprovalService', () => {
+@@ -340,6 +579,9 @@ describe('AgentToolApprovalService', () => {
          toolName: 'Bash',
          action: 'clean build output',
          display,
@@ -1396,7 +1414,7 @@ index 3c18d24..18a8350 100644
        });
      });
  
-@@ -352,7 +592,9 @@ describe('AgentToolApprovalService', () => {
+@@ -352,7 +594,9 @@ describe('AgentToolApprovalService', () => {
  
        const brokerId = request.mock.calls[0]![0].id;
        expect(brokerId).toMatch(/^approval_/);
@@ -1407,7 +1425,7 @@ index 3c18d24..18a8350 100644
        expect(events.resolved.mock.calls[0]![0]).toMatchObject({ id: brokerId });
      });
  
-@@ -365,7 +607,11 @@ describe('AgentToolApprovalService', () => {
+@@ -365,7 +609,11 @@ describe('AgentToolApprovalService', () => {
        const svc = make();
  
        await expect(
@@ -1420,7 +1438,7 @@ index 3c18d24..18a8350 100644
        ).resolves.toBeUndefined();
  
        expect(recorded).toHaveLength(1);
-@@ -385,13 +631,18 @@ describe('AgentToolApprovalService', () => {
+@@ -385,13 +633,18 @@ describe('AgentToolApprovalService', () => {
            session_cache_written: true,
          }),
        });
@@ -1440,7 +1458,7 @@ index 3c18d24..18a8350 100644
  
        expect(recorded).toHaveLength(1);
        expect(recorded[0]).toMatchObject({
-@@ -415,7 +666,8 @@ describe('AgentToolApprovalService', () => {
+@@ -415,7 +668,8 @@ describe('AgentToolApprovalService', () => {
          svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
        ).resolves.toEqual({
          veto: {
@@ -1450,7 +1468,7 @@ index 3c18d24..18a8350 100644
            isError: true,
          },
        });
-@@ -439,7 +691,10 @@ describe('AgentToolApprovalService', () => {
+@@ -439,7 +693,10 @@ describe('AgentToolApprovalService', () => {
      });
  
      it('tracks cancelled approval requests', async () => {
@@ -1462,7 +1480,7 @@ index 3c18d24..18a8350 100644
        const svc = make();
  
        await expect(
-@@ -469,7 +724,11 @@ describe('AgentToolApprovalService', () => {
+@@ -469,7 +726,11 @@ describe('AgentToolApprovalService', () => {
        ['cancelled', { decision: 'cancelled' }, 'cancelled', false],
        [
          'revise feedback',
@@ -1475,7 +1493,7 @@ index 3c18d24..18a8350 100644
          'rejected',
          true,
        ],
-@@ -527,7 +786,9 @@ describe('AgentToolApprovalService', () => {
+@@ -527,7 +788,9 @@ describe('AgentToolApprovalService', () => {
          ask(),
          'exit-plan-mode-review-ask',
        );
@@ -1486,7 +1504,7 @@ index 3c18d24..18a8350 100644
        controller.abort(error);
        await expectation;
  
-@@ -555,7 +816,9 @@ describe('AgentToolApprovalService', () => {
+@@ -555,7 +818,9 @@ describe('AgentToolApprovalService', () => {
  
        const promise = svc.requestToolApproval(
          makeContext('ExitPlanMode', {}, { signal: controller.signal }),
@@ -1497,7 +1515,7 @@ index 3c18d24..18a8350 100644
          'exit-plan-mode-review-ask',
        );
        controller.abort(new Error('approval transport closed'));
-@@ -576,7 +839,9 @@ describe('AgentToolApprovalService', () => {
+@@ -576,7 +841,9 @@ describe('AgentToolApprovalService', () => {
          ask(),
          'fallback-ask',
        );
@@ -1508,7 +1526,7 @@ index 3c18d24..18a8350 100644
        controller.abort(new UserCancellationError());
        await expectation;
  
-@@ -633,7 +898,9 @@ describe('AgentToolApprovalService', () => {
+@@ -633,7 +900,9 @@ describe('AgentToolApprovalService', () => {
  
      it('uses the cancelled prefix for cancellations', () => {
        const svc = make();

@@ -23,7 +23,7 @@ With two stages disabled, full review runs directly. Both stages share evidence,
 
 ## Engine and evidence
 
-`overlay/packages/agent-core-v2/src/agent/approvalReview/` implements review. `patches/native-review.patch` connects the pending-approval entry and loads configured permission rules. Direct allow, direct deny and task confirmation retain upstream semantics.
+`overlay/packages/agent-core-v2/src/agent/approvalReview/` implements review. `patches/native-review.patch` connects the pending-approval entry and loads configured permission rules. Direct allow, deny and task confirmation retain upstream semantics in the TUI. Headless execution adds the policy below.
 
 Only real root-agent requests, shell input, verified approvals and answers provide authorization. Assistant messages, summaries, delegation, hooks, tool results and shell output cannot authorize actions. Related `Read` results and limited verification output are untrusted behavioral evidence. Pagination, truncation and unknown scripts cannot establish safety. Actions and current authorization are never silently truncated; missing or oversized evidence results in denial.
 
@@ -49,11 +49,19 @@ Audit retains fingerprints, results and authorization-use flags, without argumen
 
 ## SDK and runtime packages
 
-The TUI manages review through the SDK, without importing engine services or adding public contracts. Ordinary official CLI hooks cannot resolve the core pending-approval request, so AutoKimi builds a separate runtime. `autokimi` preserves official `kimi` and shares account and configuration by default. Other versions require explicit porting and validation.
+The TUI manages review through the SDK without importing engine services. Ordinary official CLI hooks cannot resolve the core pending-approval request, so AutoKimi builds a separate runtime. `autokimi` preserves official `kimi` and shares account and configuration by default. Other versions require explicit porting and validation.
 
 `upstream.lock.json` pins the exact commit. The preparer applies patches and overlay in a temporary directory, moving it into the cache only on success. Changed inputs or source state prevent reuse. Production packaging validates it again.
 
 The runtime, SDK and production dependencies are reconstructed through relative package links. Dependencies receive deterministic traversal IDs; distinct resolution nodes with the same name and version remain distinct, without absolute paths in identifiers. Files, permissions and links jointly determine the release identity. Installation verifies digests and versions, then updates configuration, launcher and receipt under a per-home lock, rolling back on failure. A digest is not a signature.
+
+## Headless control
+
+`patches/headless.patch` connects an optional per-harness controller to loops, model requests, tools, permission mode and the SDK. Main agents, subagents and reviewer requests share cumulative limits and cancellation. Without this option, existing behavior remains. The CLI creates, resumes and stops sessions through the SDK without engine-service imports.
+
+The CLI's `headless/` module maintains private requests, atomic snapshots and an append-only journal. An independent worker executes each job. Submission deduplication, worker ownership, single-session writer leases and durable cancellation are separate. Recovery checks that the previous worker has ended, then restores journal state. Native SDK history and its own writer lock remain in use.
+
+Headless execution retains native denials and checks file capabilities before native allow rules. Direct allows outside the limited read-only set enter review. Autonomous goals, scheduled jobs, unattended one-time grants and permission-mode escalation are disabled. See [headless tasks](headless.md) for events, budget precision, recovery and Bash isolation limits.
 
 ## Following upstream
 

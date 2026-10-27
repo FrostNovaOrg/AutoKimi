@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Model-based tool permission review for the Kimi Code native terminal UI.
+Model-based tool permission review for the Kimi Code native TUI and observable headless tasks.
 
 [MIT](LICENSE) · [Installation](docs/en/installation.md) · [Configuration](docs/en/configuration.md) · [Architecture](docs/en/architecture.md) · [Contributing](docs/en/CONTRIBUTING.md)
 
@@ -16,14 +16,15 @@ When a tool operation requires approval, the reviewer uses the user's authorizat
 
 - Review pending tool actions in the native TUI, with two-stage decisions, service retries and an audit trail.
 - Request one exact retry for eligible model denials, with complete action details and a confirmation that defaults to Cancel.
+- Submit agent-friendly headless jobs with JSONL events, idempotency keys, cumulative budgets, cancellation and native-context continuation.
 - Choose a separate reviewer model, provider and endpoint, or follow the current agent's model by default.
 - Rebuild from a pinned upstream commit, frozen dependencies and patches; install and update independently while retaining older runtime packages.
 
-Existing allow/deny rules run first. The reviewer only receives actions passed to it by the permission system. It provides no operating system isolation, and models can make incorrect decisions. AutoKimi supports interactive TUI sessions; use native Kimi for automation, ACP and Web services.
+In the TUI, existing allow/deny rules run first and the reviewer receives pending actions. Headless `exec` additionally requires review for side-effect tools, while preserving native denials and a limited read-only tool set. Models can make incorrect decisions; neither entry provides operating system isolation. Use native Kimi for ACP and Web services.
 
 | Item                 | Current status                                                                     |
 | -------------------- | ---------------------------------------------------------------------------------- |
-| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                                                                      |
+| AutoKimi / Kimi Code | 0.3.0 / 2.3.3                                                                      |
 | Build requirements   | Node.js ≥24.15.0; pnpm 10.33.0                                                     |
 | Tested               | macOS ARM64: build, TUI regression tests and both installation paths               |
 | Pending validation   | Linux terminal interaction and other platform combinations; Windows is unsupported |
@@ -69,7 +70,16 @@ Inside the TUI:
 
 `/approval` (alias `/approve`) lists eligible denied actions. Press Enter to inspect the complete arguments, working directory and reason. Details default to Cancel. After scrolling to the end, use Tab to select “Approve this action once”, then Enter to submit. Repeated Enter presses and Space do not grant approval; Esc cancels before submission. Success returns to the input; failure leaves a retry option. `denials` is diagnostic, and explicit-ID approval uses the same confirmation. The exact tool, arguments and cwd must remain unchanged and undergo review again. No permanent allow rule is created. Compaction, undo, reset or restart invalidates old grants.
 
-**Interactive terminal sessions only.** `autokimi` rejects `-p/--prompt`, session startup without a terminal, and ACP/Web services. Use native `kimi` for automation. Help, version and update commands can run non-interactively.
+For parent agents and automation, use the explicit headless interface:
+
+```sh
+autokimi exec --prompt-file task.txt --cwd /path/to/project --max-steps 30 --detach
+autokimi runs status <run-id> --json
+autokimi runs events <run-id> --after 0
+autokimi runs stop <run-id>
+```
+
+Tasks use automatic review and caller-owned budgets. `--resume <run-id>` continues native context with cumulative counters; `--session <session-id>` starts a new task in existing context. Permission denials are reported as incomplete outcomes. See the [headless protocol](docs/en/headless.md) before integration. Native root `-p/--prompt`, non-terminal TUI startup and ACP/Web services remain disabled.
 
 **The official `/auto` command selects Never Ask and pauses the reviewer.** Keep Always Ask enabled when using AutoKimi; `/auto-review on` switches back to it. Review status appears in the bottom bar.
 
@@ -81,6 +91,7 @@ Inside the TUI:
 
 - [Installation, updates and removal](docs/en/installation.md)
 - [Configuration, review behavior and context](docs/en/configuration.md)
+- [Headless tasks and orchestration](docs/en/headless.md)
 - [Native integration architecture](docs/en/architecture.md)
 - [Development and upstream upgrades](docs/en/development.md)
 - [Timeouts and troubleshooting](docs/en/troubleshooting.md)

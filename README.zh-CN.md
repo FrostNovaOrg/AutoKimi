@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Model-based tool permission review for the Kimi Code native terminal UI.
+为 Kimi Code 原生 TUI 和可观察的无头任务提供模型权限审核。
 
 [MIT](LICENSE) · [安装](docs/installation.md) · [配置](docs/configuration.md) · [架构](docs/architecture.md) · [贡献](docs/CONTRIBUTING.md)
 
@@ -16,14 +16,15 @@ Model-based tool permission review for the Kimi Code native terminal UI.
 
 - 在原生终端交互中审核待审批工具，支持两阶段判断、服务故障退避和审计。
 - 对符合条件的模型拒绝提供一次精确重试；完整详情和默认取消的二次确认防止误授权。
+- 提供面向代理编排的无头任务：JSONL 事件、幂等提交、累计预算、取消和原生上下文续跑。
 - 可单独选择审核模型、provider 和接口地址，默认跟随当前代理模型。
 - 固定上游提交、冻结依赖与补丁重建，独立安装、更新及保留旧运行包。
 
-审核仅接收原权限系统交给它的操作，原有 allow/deny 规则仍先执行。它不提供操作系统隔离，也不能保证模型永不误判。只支持交互 TUI，自动化、ACP 和 Web 服务请使用原生 Kimi。
+TUI 中原有 allow/deny 规则先执行，审核器接收待审批操作。无头 `exec` 进一步让副作用工具经过审核，同时保留原生拒绝及有限只读工具集。模型可能误判，两个入口均不提供操作系统隔离。ACP 和 Web 服务请使用原生 Kimi。
 
 | 项目                 | 当前状态                                     |
 | -------------------- | -------------------------------------------- |
-| AutoKimi / Kimi Code | 0.2.2 / 2.3.3                                |
+| AutoKimi / Kimi Code | 0.3.0 / 2.3.3                                |
 | 构建依赖             | Node.js ≥24.15.0；pnpm 10.33.0               |
 | 已实测               | macOS ARM64：构建、TUI 回归及两种安装路径    |
 | 待验证               | Linux 终端交互及其他平台组合；Windows 不支持 |
@@ -69,7 +70,16 @@ npm run install:local -- --timeout-ms 90000
 
 `/approval`（别名 `/approve`）先列出可授权命令，Enter 查看完整参数、工作目录和原因。详情默认选择取消；滚动到末尾后，Tab 选择“Approve this action once”，再 Enter 才发送。连续回车和空格均不会授权，Esc 在发送前取消。提交成功后自动返回输入框，失败保留重试入口。`denials` 用于诊断，显式 ID 入口也须经过同样确认。完整工具、参数和 cwd 必须不变且须复审；不生成永久 allow 规则，旧授权在压缩、撤销、重置或重启后失效。
 
-**仅支持交互终端会话。** `autokimi` 禁止 `-p/--prompt`、无终端启动及 ACP/Web 服务；自动化请使用原生 `kimi`。帮助、版本和更新命令可在非交互环境使用。
+主代理和自动化通过显式无头入口调用：
+
+```sh
+autokimi exec --prompt-file task.txt --cwd /path/to/project --max-steps 30 --detach
+autokimi runs status <run-id> --json
+autokimi runs events <run-id> --after 0
+autokimi runs stop <run-id>
+```
+
+任务强制自动审核，预算由调用者持有。`--resume <run-id>` 保留累计计数并续跑原生上下文；`--session <session-id>` 在已有上下文中开启新任务。权限拒绝会明确标记为未完整完成，接入前请阅读[无头协议](docs/headless.md)。原生根命令 `-p/--prompt`、无终端启动 TUI 和 ACP/Web 服务继续禁止。
 
 **官方 `/auto` 是 Never Ask 模式，会暂停分类器。** 使用 AutoKimi 时保持 Always Ask；`/auto-review on` 会切回该模式。审核开启状态会显示在底栏。
 
@@ -81,6 +91,7 @@ npm run install:local -- --timeout-ms 90000
 
 - [安装、更新和卸载](docs/installation.md)
 - [配置、审核行为和上下文](docs/configuration.md)
+- [无头任务与编排接入](docs/headless.md)
 - [原生接入架构](docs/architecture.md)
 - [开发与上游升级](docs/development.md)
 - [超时与常见问题](docs/troubleshooting.md)

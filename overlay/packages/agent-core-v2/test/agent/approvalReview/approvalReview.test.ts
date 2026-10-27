@@ -1,3 +1,7 @@
+import {
+  AutoKimiHeadlessControl,
+  IAutoKimiHeadless,
+} from '#/app/autokimiHeadless/control';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -796,6 +800,7 @@ describe('AgentApprovalReviewService', () => {
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
+        reg.define(IAutoKimiHeadless, AutoKimiHeadlessControl);
         reg.defineInstance(IFlagService, {
           ...stubFlag(() => state.enabled),
           explain: () => ({

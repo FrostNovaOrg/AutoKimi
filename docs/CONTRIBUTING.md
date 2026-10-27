@@ -15,7 +15,7 @@
 - 新增上游源码放 `overlay/`，修改已有上游文件用 `patches/`；不要提交整个上游检出或生成包。
 - 固定精确上游版本，保持 TUI 通过 SDK 接入和官方 `kimi` 的独立性。
 - 保留真实权限边界，运行时修复须有覆盖该行为的测试；验证命令和范围写入变更说明。
-- 提交前运行 `npm test`、`npm run check` 和 `npm run check:history`；运行时修改另执行构建、相关上游测试及隔离安装。
+- 提交前运行 `npm test`、`npm run check` 和 `npm run check:history`；运行时修改另执行构建、相关上游测试、隔离安装及 `npm run test:headless`。
 - 修改 TUI 时遵循上游 `write-tui` 规范，检查窄终端、完整参数、Kitty 按键和取消路径。
 
 使用 MIT 许可贡献，并保留第三方版权与许可。版本更新须同时检查锁文件、文档和平台验证声明。

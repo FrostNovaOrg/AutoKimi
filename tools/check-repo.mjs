@@ -87,8 +87,8 @@ export async function checkRepo(root = projectRoot) {
     }
   }
   assert.ok(
-    bytes <= 672 * 1024,
-    'Repository source exceeds the 672 KiB budget',
+    bytes <= 832 * 1024,
+    'Repository source exceeds the 832 KiB budget',
   );
   const lock = await readJson(join(root, 'upstream.lock.json'));
   assert.equal(lock.repository, 'https://github.com/MoonshotAI/kimi-code.git');
@@ -96,7 +96,7 @@ export async function checkRepo(root = projectRoot) {
   assert.equal(lock.tag, '@moonshot-ai/kimi-code@' + lock.version);
   for (const path of lock.patches)
     assert.ok(files.includes(path), 'Missing integration patch: ' + path);
-  return { files: files.length, bytes, budgetBytes: 672 * 1024 };
+  return { files: files.length, bytes, budgetBytes: 832 * 1024 };
 }
 
 if (isMain(import.meta.url))

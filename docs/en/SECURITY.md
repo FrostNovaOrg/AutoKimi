@@ -2,7 +2,7 @@
 
 [English](SECURITY.md) | [简体中文](../SECURITY.md)
 
-AutoKimi is a model-based permission review layer, not a system sandbox. By default it reviews pending requests from the original permission system. Existing allow rules and modes that disable review affect coverage. Models can make mistakes; users manage permission policy, review budgets and configuration. See [architecture](architecture.md) and [verification limits](verification.md).
+AutoKimi is a model-based permission review layer, not a system sandbox. The TUI reviews pending requests from the original permission system. Existing allow rules and modes that disable review affect coverage. Models can make mistakes; users manage permission policy, review budgets and configuration. See [architecture](architecture.md) and [verification limits](verification.md).
 
 ## Supported scope
 
@@ -15,3 +15,5 @@ If the repository's Security page offers private vulnerability reporting, use it
 Include the affected commit, OS/architecture, review settings, synthetic reproduction and impact. Distinguish review-service failures, model mistakes and permission-boundary bypasses. Do not test destructive effects with real accounts or important files.
 
 Revoke or rotate exposed credentials immediately. Removing the current file cannot retract history, caches or downloaded copies. Never commit `config.toml`, OAuth data, installation receipts, sessions, raw evaluations or model request logs. Repository and history scans are supporting checks, not proof that all sensitive information is absent.
+
+Headless `exec` requires review and scopes file tools, but approved Bash has no operating system isolation. The network-tool flag does not block shell networking. Callers must provide strict isolation. Run storage may contain prompts and results; treat it as sensitive data. The protocol is for trusted local callers. See [headless boundaries](headless.md).
