@@ -292,6 +292,7 @@ export async function preparePackage(
       'upstream.lock.json',
       'package.json',
       'README.md',
+      'install.sh',
       'AGENTS.md',
       'LICENSE',
       'LICENSE.upstream',
@@ -336,6 +337,8 @@ export async function preparePackage(
     const sdkSha256 = sha256(sdk);
     const manifest = {
       autoKimi,
+      platform: process.platform,
+      arch: process.arch,
       version: pkg.version,
       upstreamCommit: verifiedSource ? lock.commit : 'unverified',
       mainSha256,
@@ -358,6 +361,14 @@ export async function preparePackage(
 }
 
 async function verifyPackage(source, manifest) {
+  if (manifest.platform !== undefined)
+    assert.equal(
+      manifest.platform,
+      process.platform,
+      'Runtime platform mismatch',
+    );
+  if (manifest.arch !== undefined)
+    assert.equal(manifest.arch, process.arch, 'Runtime architecture mismatch');
   assert.match(manifest.release, /^[a-f0-9]{16}$/, 'Invalid release ID');
   assert.match(manifest.packageSha256, /^[a-f0-9]{64}$/);
   assert.equal(

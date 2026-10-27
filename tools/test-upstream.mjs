@@ -47,6 +47,7 @@ run(
     'packages/node-sdk/test/review-config.test.ts',
     'packages/node-sdk/test/session-prompt-events.test.ts',
     'apps/kimi-code/test/tui/commands/review.test.ts',
+    'apps/kimi-code/test/tui/components/dialogs/review-approval.test.ts',
     'apps/kimi-code/test/cli/interactive-only.test.ts',
     'apps/kimi-code/test/tui/commands/resolve.test.ts',
     'apps/kimi-code/test/tui/commands/registry.test.ts',

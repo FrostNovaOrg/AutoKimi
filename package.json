@@ -1,6 +1,6 @@
 {
   "name": "autokimi",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,8 @@
     "check": "node tools/check-repo.mjs",
     "package:runtime": "node tools/install.mjs --prepare .artifacts/runtime",
     "install:local": "node tools/install.mjs",
-    "test:install": "node tools/smoke-install.mjs"
+    "test:install": "node tools/smoke-install.mjs",
+    "package:release": "node tools/package-release.mjs"
   },
   "repository": {
     "type": "git",

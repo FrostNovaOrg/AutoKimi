@@ -30,7 +30,7 @@
 
 ## 模型拒绝后如何只重试一次
 
-运行 `/approval`（或 `/approve`）查看当前 session 的可覆盖命令。Enter 将选中项从 ✗ 变为 ✓ 并发送一次授权，再按 Enter 或 Esc 关闭；未显示 ✓ 表示授权未发送。无 ID 的 `/auto-review approve` 也打开该列表，`/auto-review denials` 用于诊断，显式 `<toolCallId>` 仍可精确授权。主代理会用完全相同的工具、参数和 cwd 重提，审核器仍会复审；批准一次不等于永久允许，也不会修改配置或权限规则。
+运行 `/approval`（或 `/approve`）查看当前 session 可授权的拒绝。Enter 先查看完整参数、cwd 和原因，滚动到末尾后 Tab 选择一次授权，再 Enter 发送；默认取消，连续回车和空格不会授权。SDK 确认接收才报告成功，失败保留重试入口。`/auto-review approve [toolCallId]` 使用同样确认，`denials` 用于诊断。主代理只会以完全相同的工具、参数和 cwd 重提并复审；授权不生成永久规则。
 
 没有记录通常表示拒绝来自 protected path、显式 ask、配置/证据问题、基础设施失败、critical 或子代理，这些不能覆盖。参数变化、挑战已消费、compaction、undo、session reset、重启、审核关闭或离开 Always Ask 也会使命令拒绝。不要用 importContext、工具输出或助手文本来构造授权，它们不能建立有效的一次授权。
 

@@ -25,6 +25,7 @@ function makeSession() {
   let override: boolean | undefined;
   const session = {
     id: 'session-test',
+    workDir: '/workspace',
     setPermission: vi.fn(async () => {}),
     updateMetadata: vi.fn(
       async (patch: { autokimi: { approvalReview: boolean } }) => {
@@ -56,11 +57,15 @@ function makeHost(source: ExperimentalFeatureState['source'] = 'default') {
     source,
   });
   const session = makeSession().session;
+  let onDisplaced: (() => void) | undefined;
   const host = {
     state: {
       ui: { requestRender: vi.fn() },
+      terminal: { rows: 24 },
       appState: {
         sessionId: session.id,
+        workDir: '/workspace',
+        model: 'k2',
         permissionMode: 'auto',
         approvalReviewEnabled: false,
       },
@@ -70,6 +75,9 @@ function makeHost(source: ExperimentalFeatureState['source'] = 'default') {
       getExperimentalFeatures: vi.fn(async () => [feature()]),
       getConfig: vi.fn(async () => ({
         providers: {},
+        models: {
+          'provider/reviewer': { provider: 'example', model: 'reviewer' },
+        },
         permission: {
           review: { timeoutMs: 45000, maxContextChars: 12000, twoStage: false },
         },
@@ -85,13 +93,21 @@ function makeHost(source: ExperimentalFeatureState['source'] = 'default') {
         host.state.appState = { ...host.state.appState, ...patch };
       },
     ),
-    sendNormalUserInput: vi.fn(),
+    sendReviewApproval: vi.fn(async (_session: unknown, _text: string) => {}),
     showNotice: vi.fn(),
     showStatus: vi.fn(),
     showError: vi.fn(),
     refreshSlashCommandAutocomplete: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
+    mountEditorReplacement: vi.fn((_panel: unknown, displaced?: () => void) => {
+      const previous = onDisplaced;
+      onDisplaced = displaced;
+      previous?.();
+    }),
+    restoreEditor: vi.fn(() => {
+      const displaced = onDisplaced;
+      onDisplaced = undefined;
+      displaced?.();
+    }),
   };
   return {
     host,
@@ -174,6 +190,35 @@ async function openApprovalPicker(
   return { pending, picker };
 }
 
+function confirmApproval(picker: {
+  handleInput(data: string): void;
+  render(width: number): string[];
+}): void {
+  picker.handleInput('\r');
+  picker.render(110);
+  picker.handleInput('\x1b[F');
+  picker.render(110);
+  picker.handleInput('\t');
+  picker.handleInput('\r');
+}
+
+async function approveId(
+  t: ReturnType<typeof makeHost>,
+  id: string,
+): Promise<void> {
+  const count = t.host.mountEditorReplacement.mock.calls.length;
+  const pending = handleReviewCommand(t.commandHost, `approve ${id}`);
+  await vi.waitFor(() =>
+    expect(t.host.mountEditorReplacement.mock.calls.length).toBe(count + 1),
+  );
+  const picker = t.host.mountEditorReplacement.mock.calls.at(-1)![0] as {
+    handleInput(data: string): void;
+    render(width: number): string[];
+  };
+  confirmApproval(picker);
+  await pending;
+}
+
 describe('native TUI approval reviewer', () => {
   afterEach(() => {
     clearApprovalReviewDenials();
@@ -234,7 +279,7 @@ describe('native TUI approval reviewer', () => {
     expect(t.host.harness.setConfig).toHaveBeenCalledWith({
       permission: { review: { model: 'provider/reviewer' } },
     });
-    expect(t.host.harness.getConfig).not.toHaveBeenCalled();
+    expect(t.host.harness.getConfig).toHaveBeenCalled();
   });
 
   it('describes uncertain and failed reviews as denials in active mode', async () => {
@@ -326,10 +371,7 @@ describe('native TUI approval reviewer', () => {
     );
     try {
       await applyPermissionChoice(t.commandHost, 'auto');
-      expect(t.host.session.setPermission).toHaveBeenNthCalledWith(
-        1,
-        'manual',
-      );
+      expect(t.host.session.setPermission).toHaveBeenNthCalledWith(1, 'manual');
       expect(t.host.session.setPermission).toHaveBeenNthCalledWith(2, 'auto');
     } finally {
       finish();
@@ -402,7 +444,7 @@ describe('native TUI approval reviewer', () => {
       'No eligible model denials.',
     );
     expect(t.host.mountEditorReplacement).not.toHaveBeenCalled();
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
   });
 
   it('changes a unique denial to approved and consumes it without an ID', async () => {
@@ -414,22 +456,20 @@ describe('native TUI approval reviewer', () => {
       t,
       'interactive-approve',
     );
-    expect(picker.render(110).join('\n')).toContain('✗');
-    picker.handleInput('\r');
+    expect(picker.render(110).join('\n')).toContain('Review denied actions');
+    confirmApproval(picker);
     await vi.waitFor(() =>
-      expect(t.host.sendNormalUserInput).toHaveBeenCalledTimes(1),
+      expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1),
     );
-    const message = t.host.sendNormalUserInput.mock.calls[0]?.[0] as string;
+    const message = t.host.sendReviewApproval.mock.calls[0]?.[1] as string;
     expect(JSON.parse(message.split('\n')[1] ?? '')).toMatchObject({
       toolCallId: 'call-denied',
     });
-    await vi.waitFor(() =>
-      expect(picker.render(110).join('\n')).toContain('✓'),
-    );
-    picker.handleInput('\r');
+    await vi.waitFor(() => expect(t.host.restoreEditor).toHaveBeenCalled());
+    confirmApproval(picker);
     await pending;
     await handleReviewCommand(t.commandHost, 'approve');
-    expect(t.host.sendNormalUserInput).toHaveBeenCalledTimes(1);
+    expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1);
     expect(t.host.showNotice).toHaveBeenCalledWith(
       'Auto-review denials: 0',
       'No eligible model denials.',
@@ -448,22 +488,21 @@ describe('native TUI approval reviewer', () => {
       '00000000-0000-4000-8000-000000000001',
     );
     const { pending, picker } = await openApprovalPicker(t);
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     const rendered = picker.render(110).join('\n');
-    expect(rendered).toContain('Approve one denied action');
-    expect(rendered).toContain('npm test');
-    expect(rendered).toContain('✗');
-    picker.handleInput('\r');
+    expect(rendered).toContain('Review denied actions');
+    expect(rendered).toContain('Needs exact approval');
+    confirmApproval(picker);
     await vi.waitFor(() =>
-      expect(t.host.sendNormalUserInput).toHaveBeenCalledTimes(1),
+      expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1),
     );
-    const message = t.host.sendNormalUserInput.mock.calls[0]?.[0] as string;
+    const message = t.host.sendReviewApproval.mock.calls[0]?.[1] as string;
     expect(JSON.parse(message.split('\n')[1] ?? '')).toMatchObject({
       toolCallId: 'call-newer',
       challenge: '00000000-0000-4000-8000-000000000001',
     });
-    expect(picker.render(110).join('\n')).toContain('✓');
-    picker.handleInput('\r');
+    expect(t.host.restoreEditor).toHaveBeenCalled();
+    confirmApproval(picker);
     await pending;
     expect(t.host.restoreEditor).toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(1);
@@ -477,8 +516,9 @@ describe('native TUI approval reviewer', () => {
     registerDenial('session-test', 'call-newer');
     const { pending, picker } = await openApprovalPicker(t);
     picker.handleInput('\x1b');
+    picker.handleInput('\x1b');
     await pending;
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(t.host.restoreEditor).toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(2);
   });
@@ -494,15 +534,16 @@ describe('native TUI approval reviewer', () => {
       ...t.makeSession().session,
       id: 'session-other',
     } as unknown as typeof t.host.session;
-    picker.handleInput('\r');
+    confirmApproval(picker);
     await vi.waitFor(() =>
       expect(t.host.showError).toHaveBeenCalledWith(
         'The selected auto-review denial is no longer active.',
       ),
     );
     picker.handleInput('\x1b');
+    picker.handleInput('\x1b');
     await pending;
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(2);
   });
 
@@ -519,16 +560,17 @@ describe('native TUI approval reviewer', () => {
       'main',
       '00000000-0000-4000-8000-000000000002',
     );
-    picker.handleInput('\r');
+    confirmApproval(picker);
     await vi.waitFor(() =>
       expect(t.host.showError).toHaveBeenCalledWith(
         'No eligible auto-review denial: call-newer',
       ),
     );
-    expect(picker.render(110).join('\n')).toContain('✗');
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
+    picker.handleInput('\x1b');
     picker.handleInput('\x1b');
     await pending;
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(
       approvalReviewDenials('session-test').find(
         (record) => record.toolCallId === 'call-newer',
@@ -541,9 +583,9 @@ describe('native TUI approval reviewer', () => {
     t.setEnabled(true);
     t.host.state.appState.permissionMode = 'manual';
     registerDenial();
-    await handleReviewCommand(t.commandHost, 'approve call-denied');
-    expect(t.host.sendNormalUserInput).toHaveBeenCalledTimes(1);
-    const message = t.host.sendNormalUserInput.mock.calls[0]?.[0] as string;
+    await approveId(t, 'call-denied');
+    expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1);
+    const message = t.host.sendReviewApproval.mock.calls[0]?.[1] as string;
     const [marker, serialized, ...instruction] = message.split('\n');
     expect(marker).toBe('AUTOKIMI_REVIEW_GRANT_V1');
     expect(JSON.parse(serialized ?? '')).toEqual({
@@ -553,7 +595,7 @@ describe('native TUI approval reviewer', () => {
     });
     expect(instruction.join('\n')).toContain('identical tool');
     await handleReviewCommand(t.commandHost, 'approve call-denied');
-    expect(t.host.sendNormalUserInput).toHaveBeenCalledTimes(1);
+    expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1);
     expect(t.host.harness.setConfig).not.toHaveBeenCalled();
     expect(t.host.session.setPermission).not.toHaveBeenCalled();
     expect(t.host.session.updateMetadata).not.toHaveBeenCalled();
@@ -568,7 +610,7 @@ describe('native TUI approval reviewer', () => {
     t.setEnabled(true);
     t.host.state.appState.permissionMode = 'auto';
     await handleReviewCommand(t.commandHost, 'approve call-denied');
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(1);
   });
 
@@ -584,7 +626,7 @@ describe('native TUI approval reviewer', () => {
       id: 'session-other',
     } as unknown as SlashCommandHost['session'];
     await handleReviewCommand(t.commandHost, 'approve call-denied');
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(1);
   });
 
@@ -625,9 +667,9 @@ describe('native TUI approval reviewer', () => {
       approvalReviewDenials('session-test').map((record) => record.toolCallId),
     ).toEqual(['replacement']);
     await handleReviewCommand(t.commandHost, 'approve call-denied');
-    expect(t.host.sendNormalUserInput).not.toHaveBeenCalled();
-    await handleReviewCommand(t.commandHost, 'approve replacement');
-    expect(t.host.sendNormalUserInput).toHaveBeenCalledOnce();
+    expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
+    await approveId(t, 'replacement');
+    expect(t.host.sendReviewApproval).toHaveBeenCalledOnce();
   });
 
   it('does not resurrect invalidated challenges from delayed snapshots', () => {
@@ -660,5 +702,109 @@ describe('native TUI approval reviewer', () => {
     await handleReviewCommand(t.commandHost, 'off');
     expect(approvalReviewDenials('session-test')).toHaveLength(0);
     expect(approvalReviewDenials('other-session')).toHaveLength(1);
+  });
+  it('retains the denial until submission is acknowledged and prevents duplicate submissions', async () => {
+    const t = makeHost();
+    t.setEnabled(true);
+    t.host.state.appState.permissionMode = 'manual';
+    registerDenial();
+    let acknowledge!: () => void;
+    t.host.sendReviewApproval.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          acknowledge = resolve;
+        }),
+    );
+    const { pending, picker } = await openApprovalPicker(t);
+    confirmApproval(picker);
+    await vi.waitFor(() =>
+      expect(t.host.sendReviewApproval).toHaveBeenCalledOnce(),
+    );
+    expect(approvalReviewDenials('session-test')).toHaveLength(1);
+    expect(t.host.showNotice).not.toHaveBeenCalled();
+    picker.handleInput('\r');
+    picker.handleInput(' ');
+    expect(t.host.sendReviewApproval).toHaveBeenCalledOnce();
+    acknowledge();
+    await pending;
+    expect(approvalReviewDenials('session-test')).toHaveLength(0);
+    expect(t.host.showNotice).toHaveBeenCalledWith(
+      'One-time approval sent.',
+      expect.any(String),
+    );
+  });
+
+  it('keeps a failed grant retryable without reporting success', async () => {
+    const t = makeHost();
+    t.setEnabled(true);
+    t.host.state.appState.permissionMode = 'manual';
+    registerDenial();
+    t.host.sendReviewApproval.mockRejectedValueOnce(
+      new Error('submission rejected'),
+    );
+    const { pending, picker } = await openApprovalPicker(t);
+    confirmApproval(picker);
+    await vi.waitFor(() =>
+      expect(t.host.showError).toHaveBeenCalledWith(
+        expect.stringContaining('submission rejected'),
+      ),
+    );
+    expect(approvalReviewDenials('session-test')).toHaveLength(1);
+    expect(t.host.showNotice).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(picker.render(110).join('\n')).not.toContain('Sending one-time'),
+    );
+    picker.handleInput('\x1b');
+    confirmApproval(picker);
+    await pending;
+    expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an unknown reviewer alias without changing configuration', async () => {
+    const t = makeHost();
+    await handleReviewCommand(t.commandHost, 'model typo');
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(t.host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown reviewer model alias'),
+    );
+    await handleReviewCommand(t.commandHost, 'model @session');
+    expect(t.host.harness.setConfig).toHaveBeenCalledWith({
+      permission: { review: { model: '@session' } },
+    });
+  });
+
+  it('opens a searchable reviewer picker and explains the setting scope', async () => {
+    const t = makeHost();
+    const pending = handleReviewCommand(t.commandHost, 'model');
+    await vi.waitFor(() =>
+      expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce(),
+    );
+    const picker = t.host.mountEditorReplacement.mock.calls[0]![0] as {
+      render(width: number): string[];
+      handleInput(data: string): void;
+    };
+    const output = picker.render(110).join('\n');
+    expect(output).toContain('Follow current session model');
+    expect(output).toContain('Shared setting for all sessions');
+    picker.handleInput('\x1b');
+    await pending;
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('opens settings without changing permissions and labels the session scope', async () => {
+    const t = makeHost();
+    const pending = handleReviewCommand(t.commandHost, '');
+    await vi.waitFor(() =>
+      expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce(),
+    );
+    const picker = t.host.mountEditorReplacement.mock.calls[0]![0] as {
+      render(width: number): string[];
+      handleInput(data: string): void;
+    };
+    expect(picker.render(110).join('\n')).toContain('current session');
+    picker.handleInput(' ');
+    expect(t.host.session.setPermission).not.toHaveBeenCalled();
+    picker.handleInput('\x1b');
+    await pending;
   });
 });

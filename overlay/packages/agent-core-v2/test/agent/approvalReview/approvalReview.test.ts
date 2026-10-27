@@ -309,7 +309,10 @@ describe('approval classifier', () => {
       user('Run tests'),
       user(message),
       user(REVIEW_GRANT_MARKER),
-      { ...user(message), origin: { kind: 'hook_result', event: 'PreToolUse' } },
+      {
+        ...user(message),
+        origin: { kind: 'hook_result', event: 'PreToolUse' },
+      },
       createAssistantMessage([{ type: 'text', text: message }]),
       {
         ...user(message),
@@ -929,6 +932,32 @@ describe('AgentApprovalReviewService', () => {
     };
   }
 
+  it.each([
+    [undefined, 'test-model'],
+    ['@session', 'test-model'],
+    ['explicit-reviewer', 'explicit-reviewer'],
+  ])(
+    'resolves reviewer model %s through the configured session fallback',
+    async (configured, expected) => {
+      const t = await setup();
+      t.state.settings = { model: configured, twoStage: false };
+      expect(
+        await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
+      ).toEqual({ kind: 'approve' });
+      expect(t.generate.mock.calls[0]?.[0]).toBe(expected);
+    },
+  );
+
+  it('includes the exact working directory in approval details', async () => {
+    const t = await setup();
+    t.state.settings = { twoStage: false };
+    t.state.replies = [deny];
+    await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask');
+    expect((t.dispatch.mock.calls as unknown[][]).at(-1)?.[0]).toMatchObject({
+      update: { customData: { denials: [{ cwd: t.directory }] } },
+    });
+  });
+
   async function versionFixture(t: Awaited<ReturnType<typeof setup>>) {
     const home = join(t.directory, 'home');
     const distribution = join(home, 'autokimi', 'releases', 'release1');
@@ -944,7 +973,9 @@ describe('AgentApprovalReviewService', () => {
     );
     await writeFile(main, 'main');
     const hash = async (path: string) =>
-      createHash('sha256').update(await readFile(path)).digest('hex');
+      createHash('sha256')
+        .update(await readFile(path))
+        .digest('hex');
     const receiptPath = join(home, 'autokimi', 'installation.json');
     await writeFile(
       receiptPath,
@@ -999,13 +1030,17 @@ describe('AgentApprovalReviewService', () => {
             fingerprint: string;
           }>;
         }
-      ).denials.filter((record) => {
-        if (seen.has(record.challenge)) return false;
-        seen.add(record.challenge);
-        return true;
-      }).map(({ challenge, toolCallId, fingerprint }) => ({
-        challenge, toolCallId, fingerprint,
-      }));
+      ).denials
+        .filter((record) => {
+          if (seen.has(record.challenge)) return false;
+          seen.add(record.challenge);
+          return true;
+        })
+        .map(({ challenge, toolCallId, fingerprint }) => ({
+          challenge,
+          toolCallId,
+          fingerprint,
+        }));
     });
   }
 
@@ -1114,11 +1149,17 @@ describe('AgentApprovalReviewService', () => {
     await writeFile(f.main, 'tampered');
     expect(
       await versionReview(t, `${f.autokimi} --version`, f.autokimi),
-    ).toMatchObject({ kind: 'deny', message: expect.stringContaining('protected') });
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('protected'),
+    });
     await rm(f.receiptPath);
     expect(
       await versionReview(t, `${f.autokimi} --version`, f.autokimi),
-    ).toMatchObject({ kind: 'deny', message: expect.stringContaining('protected') });
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('protected'),
+    });
     expect(t.generate).not.toHaveBeenCalled();
   });
 
@@ -1622,11 +1663,7 @@ describe('AgentApprovalReviewService', () => {
     try {
       for (let index = 0; index < 2; index++)
         expect(
-          await t.service.review(
-            t.context(),
-            { kind: 'ask' },
-            'fallback-ask',
-          ),
+          await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
         ).toMatchObject({ kind: 'deny', stopTurn: false });
       expect(t.generate).toHaveBeenCalledTimes(2);
       await vi.advanceTimersByTimeAsync(30_001);
@@ -1996,11 +2033,7 @@ describe('AgentApprovalReviewService', () => {
     t.state.settings = { twoStage: false };
     t.state.replies = [deny, deny];
     const command = `printf ${'x'.repeat(5000)}`;
-    await t.service.review(
-      t.context(command),
-      { kind: 'ask' },
-      'fallback-ask',
-    );
+    await t.service.review(t.context(command), { kind: 'ask' }, 'fallback-ask');
     const challenge = issuedChallenges(t)[0]!;
     t.state.messages.push(user(createReviewGrantMessage(challenge)));
     t.state.settings = { twoStage: false, maxContextChars: 4000 };
@@ -2122,9 +2155,7 @@ describe('AgentApprovalReviewService', () => {
     expect(reviewerTexts(t).at(-1)).not.toContain(
       '"verified_one_time_user_approval":{',
     );
-    expect(
-      JSON.parse(await readFile(audit, 'utf8')).overrideUsed,
-    ).toBe(false);
+    expect(JSON.parse(await readFile(audit, 'utf8')).overrideUsed).toBe(false);
   });
 
   it('does not issue overrides for critical, policy or subagent denials', async () => {
@@ -2205,24 +2236,39 @@ describe('AgentApprovalReviewService', () => {
     const t = await setup();
     t.state.settings = { twoStage: false };
     requireEvidence(t, '"verified_human_approvals"');
-    resolvedApproval(t, 'approval-other-command', {
-      decision: 'approved',
-    }, {
-      ...approvalPayload(t, 'approval-other-command'),
-      toolInput: { command: 'npm run check' },
-    });
-    resolvedApproval(t, 'approval-other-cwd', {
-      decision: 'approved',
-    }, {
-      ...approvalPayload(t, 'approval-other-cwd'),
-      cwd: join(t.directory, 'other'),
-    });
-    resolvedApproval(t, 'approval-no-cwd', {
-      decision: 'approved',
-    }, {
-      ...approvalPayload(t, 'approval-no-cwd'),
-      cwd: undefined,
-    });
+    resolvedApproval(
+      t,
+      'approval-other-command',
+      {
+        decision: 'approved',
+      },
+      {
+        ...approvalPayload(t, 'approval-other-command'),
+        toolInput: { command: 'npm run check' },
+      },
+    );
+    resolvedApproval(
+      t,
+      'approval-other-cwd',
+      {
+        decision: 'approved',
+      },
+      {
+        ...approvalPayload(t, 'approval-other-cwd'),
+        cwd: join(t.directory, 'other'),
+      },
+    );
+    resolvedApproval(
+      t,
+      'approval-no-cwd',
+      {
+        decision: 'approved',
+      },
+      {
+        ...approvalPayload(t, 'approval-no-cwd'),
+        cwd: undefined,
+      },
+    );
     resolvedApproval(t, 'approval-rejected', { decision: 'rejected' });
     resolvedApproval(t, 'approval-cancelled', {
       cancelled: true,
@@ -2264,11 +2310,7 @@ describe('AgentApprovalReviewService', () => {
     resolvedQuestion('question-1', {
       answers: { 'Allow npm test?': 'yes, only npm test' },
     });
-    requireEvidence(
-      t,
-      '"human_question_answers"',
-      'yes, only npm test',
-    );
+    requireEvidence(t, '"human_question_answers"', 'yes, only npm test');
     expect(
       await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
     ).toEqual({ kind: 'approve' });
@@ -2375,7 +2417,10 @@ describe('AgentApprovalReviewService', () => {
     });
     expect(
       await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
-    ).toMatchObject({ kind: 'deny', message: expect.not.stringContaining('changed') });
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.not.stringContaining('changed'),
+    });
     requireEvidence(t, '"interactionId":"approval-denied"');
     expect(
       await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
@@ -2396,17 +2441,25 @@ describe('AgentApprovalReviewService', () => {
     const t = await setup();
     const command = `printf ${'x'.repeat(5000)}`;
     t.state.settings = { twoStage: false, maxContextChars: 4000 };
-    resolvedApproval(t, 'approval-large', { decision: 'approved' }, {
-      ...approvalPayload(t, 'approval-large'),
-      toolInput: { command },
-    });
+    resolvedApproval(
+      t,
+      'approval-large',
+      { decision: 'approved' },
+      {
+        ...approvalPayload(t, 'approval-large'),
+        toolInput: { command },
+      },
+    );
     expect(
       await t.service.review(
         t.context(command),
         { kind: 'ask' },
         'fallback-ask',
       ),
-    ).toMatchObject({ kind: 'deny', message: expect.stringContaining('evidence') });
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('evidence'),
+    });
     t.state.settings = { twoStage: false };
     requireEvidence(t, '"interactionId":"approval-large"');
     expect(
@@ -2540,8 +2593,9 @@ describe('AgentApprovalReviewService', () => {
     const t = await setup();
     t.state.settings = { twoStage: false };
     resolvedQuestion('question-replaced');
-    const createdAt = interactions.findOne({ id: 'question-replaced' })!
-      .createdAt;
+    const createdAt = interactions.findOne({
+      id: 'question-replaced',
+    })!.createdAt;
     t.generate.mockImplementationOnce(async function* (_model, input) {
       t.inputs.push(input);
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -2581,7 +2635,11 @@ describe('AgentApprovalReviewService', () => {
       message: expect.stringContaining('do not produce the denied effect'),
     });
     expect(
-      await t.service.review(t.context('npm test'), { kind: 'ask' }, 'fallback-ask'),
+      await t.service.review(
+        t.context('npm test'),
+        { kind: 'ask' },
+        'fallback-ask',
+      ),
     ).toEqual({ kind: 'approve' });
     expect(
       await t.service.review(
@@ -2592,7 +2650,9 @@ describe('AgentApprovalReviewService', () => {
     ).toMatchObject({
       kind: 'deny',
       stopTurn: false,
-      message: expect.stringContaining('Do not accomplish the same denied effect'),
+      message: expect.stringContaining(
+        'Do not accomplish the same denied effect',
+      ),
     });
   });
 
@@ -2703,7 +2763,9 @@ describe('AgentApprovalReviewService', () => {
     t.generate.mockImplementation(async function* (_model, input) {
       t.inputs.push(input);
       const text = reviewerTexts(t).at(-1) ?? '';
-      const stage = text.includes('Review stage: Fast screen.') ? 'fast' : 'full';
+      const stage = text.includes('Review stage: Fast screen.')
+        ? 'fast'
+        : 'full';
       stages.push(stage);
       if (stage === 'fast' && stages.length === 10) {
         yield {
@@ -2766,7 +2828,9 @@ describe('AgentApprovalReviewService', () => {
         message: expect.stringContaining('timed out'),
       });
       expect(t.generate).toHaveBeenCalledOnce();
-      expect(JSON.stringify(t.dispatch.mock.calls)).toContain('Retrying (2/10)');
+      expect(JSON.stringify(t.dispatch.mock.calls)).toContain(
+        'Retrying (2/10)',
+      );
     } finally {
       vi.useRealTimers();
     }

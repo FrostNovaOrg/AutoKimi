@@ -33,7 +33,7 @@ main agent 的非 critical 模型拒绝最多保留 10 个挑战，同一 `{tool
 
 TUI 校验当前 session、main agent 及完整记录后替换列表，忽略重复和迟到 sequence。已发送授权的挑战保持隐藏，直到引擎将其移出快照。快照自带工具信息，兼容早于工具开始或迟于结束的事件。
 
-`/approval`（别名 `/approve`）中 Enter 发送一次授权并显示 ✓，再按 Enter 或 Esc 关闭。`/auto-review approve` 共用选择器，显式 ID 和 `denials` 保留。发送前重新核对 session、模式和挑战。
+`/approval`（别名 `/approve`）列出精确拒绝，Enter 进入可滚动详情，默认取消；查看完整参数及 cwd 后，显式选择一次授权并再次 Enter 才提交。SDK 接收后才消费 TUI 记录并报告成功，失败可重试；显式 ID 入口共用确认。发送前重查 session、模式和挑战，独立提交入口不经过旁聊、媒体或缓存提示。
 
 引擎在首次模型调用前验证用户通道、挑战、session/agent、完整指纹和 `prefixRevision()` 并原子消费。授权仅加入复审证据，不能绕过 protected action、显式 ask、critical 等约束，不生成 allow 规则。compaction、undo、clear、session reset 和重启使旧挑战失效。grant 从普通请求中过滤；importContext 标为不可信来源。
 

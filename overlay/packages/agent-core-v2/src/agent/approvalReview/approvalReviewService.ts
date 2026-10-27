@@ -63,6 +63,7 @@ interface DenialChallenge {
   revision: number;
   toolName: string;
   args: unknown;
+  cwd: string;
   reason: string;
 }
 
@@ -137,7 +138,8 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   isEnabled(): boolean {
     if (this.mode.mode !== 'manual') return false;
     const feature = this.flags.explain(APPROVAL_REVIEW_FLAG);
-    const enabled = feature?.enabled ?? this.flags.enabled(APPROVAL_REVIEW_FLAG);
+    const enabled =
+      feature?.enabled ?? this.flags.enabled(APPROVAL_REVIEW_FLAG);
     if (feature?.source === 'env' || feature?.source === 'master-env')
       return enabled;
     const snapshot = this.metadata.snapshot?.();
@@ -171,9 +173,13 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     const parsedSettings = ApprovalReviewConfigSchema.safeParse(
       this.config.get<PermissionConfig | undefined>('permission')?.review ?? {},
     );
-    const model =
-      (parsedSettings.success ? parsedSettings.data.model : undefined) ??
-      this.profile.getModel();
+    const resolveModel = (configured: string | undefined): string =>
+      configured === '@session' || configured === undefined
+        ? this.profile.getModel()
+        : configured;
+    const model = resolveModel(
+      parsedSettings.success ? parsedSettings.data.model : undefined,
+    );
     let decision = this.preflightDecision(context, result, origin);
     const fingerprint = evidenceFingerprint({
       tool: context.toolCall.name,
@@ -266,7 +272,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
             rules === evidenceFingerprint(permissionRules()) &&
             this.isEnabled() &&
             JSON.stringify(settings) === JSON.stringify(currentSettings.data) &&
-            model === (currentSettings.data.model ?? this.profile.getModel())
+            model === resolveModel(currentSettings.data.model)
           );
         };
         phase = 'model';
@@ -469,11 +475,13 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   ): VerifiedHumanApproval | undefined {
     if (this.scope.agentId !== 'main') return undefined;
     const originalToolCalls = new Set(
-      this.contextMemory.get().flatMap((message) =>
-        message.role === 'assistant'
-          ? message.toolCalls.map((call) => call.id)
-          : [],
-      ),
+      this.contextMemory
+        .get()
+        .flatMap((message) =>
+          message.role === 'assistant'
+            ? message.toolCalls.map((call) => call.id)
+            : [],
+        ),
     );
     for (const approval of approvals.toReversed()) {
       if (
@@ -486,9 +494,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       if (approval.scope === 'session') {
         if (
           approval.approvalRule !== undefined &&
-          this.rules.sessionApprovalRulePatterns.includes(
-            approval.approvalRule,
-          )
+          this.rules.sessionApprovalRulePatterns.includes(approval.approvalRule)
         )
           return approval;
         continue;
@@ -547,6 +553,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       revision: this.contextMemory.prefixRevision(),
       toolName: context.toolCall.name,
       args: context.args,
+      cwd: this.session.cwd,
       reason,
     };
     this.denialChallenges.set(record.toolCallId, record);
@@ -756,9 +763,8 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       return (
         typeof receipt.launcherSha256 === 'string' &&
         this.fileSha256(autokimi) === receipt.launcherSha256 &&
-        this.fileSha256(
-          join(receipt.distribution, 'dist', 'main.mjs'),
-        ) === receipt.mainSha256
+        this.fileSha256(join(receipt.distribution, 'dist', 'main.mjs')) ===
+          receipt.mainSha256
       );
     } catch {
       return false;
@@ -779,7 +785,12 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
         agentId: this.scope.agentId,
         turnId: context.turnId,
         toolCallId: context.toolCall.id,
-        update: { kind: 'status', customKind: 'approval.review', text, customData },
+        update: {
+          kind: 'status',
+          customKind: 'approval.review',
+          text,
+          customData,
+        },
       }),
     );
   }

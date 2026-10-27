@@ -53,6 +53,7 @@ export interface ApprovalReviewDenial {
   reason: string;
   toolName: string;
   args: Record<string, unknown>;
+  cwd?: string;
 }
 
 interface DenialState {
@@ -93,6 +94,7 @@ function parseDenial(value: unknown): ApprovalReviewDenial | undefined {
     reason,
     toolName,
     args: args as Record<string, unknown>,
+    cwd: typeof data['cwd'] === 'string' ? data['cwd'] : undefined,
   };
 }
 

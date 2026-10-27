@@ -8,7 +8,15 @@
 
 ## 安装
 
-已在 macOS 上验证；安装器面向 macOS/Linux，Linux 尚未实测。需要 Node.js ≥24.15.0、Git、pnpm **10.33.0**，以及已配置的 Kimi 账号或模型。首次构建会下载官方源码和依赖，构建目录可能占用数 GB。
+已在 macOS ARM64 上验证；安装器支持 macOS/Linux 的 ARM64、x64，其他组合尚待实测。仓库公开后可一键安装：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+```
+
+安装脚本优先下载当前平台的 Release 包并核对 SHA-256；没有发布包时自动从固定的 Kimi 基线构建。需要 curl 和 tar；源码构建还需要 Git，会下载精确版本的 pnpm，首次构建可能占用数 GB。缺少 Node.js ≥24.15.0 时，脚本将 Node 安装到 AutoKimi 独立目录。安装后显示启动命令和 PATH 指引。
+
+私有阶段或已有源码时，在有访问权限的检出目录运行 `sh install.sh --source`。手动构建安装仍可用：
 
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
@@ -18,7 +26,7 @@ npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
 ```
 
-如果 `~/.kimi-code/bin` 已在 PATH 中，之后直接运行 `autokimi`。上述安装会启用审核、将默认权限模式设为 Always Ask，并把总审核时限设为 90 秒。登录信息和模型配置继续共用。安装只生成独立运行包和 `autokimi` 脚本，保留官方 `kimi` 可执行文件。
+手动构建需要 Node.js ≥24.15.0 和 pnpm **10.33.0**。安装启用审核并将默认权限模式设为 Always Ask；一键脚本保留已有审核时限，传入 `--timeout-ms 90000` 才设置为 90 秒。登录和模型配置继续共用，官方 `kimi` 可执行文件保留。
 
 进入 TUI 后：
 
@@ -31,7 +39,9 @@ npm run install:local -- --timeout-ms 90000
 /auto-review off
 ```
 
-`/approval`（别名 `/approve`）列出可授权命令，Enter 将选中项从 ✗ 变为 ✓ 并发送一次授权，再按 Enter 或 Esc 关闭。`denials` 用于诊断，显式 ID 仍兼容。工具、完整参数和 cwd 必须不变且须复审；不生成永久 allow 规则。compaction、undo、session reset 或重启后旧授权失效。
+`/auto-review` 打开设置菜单；开关作用于当前会话，无会话时修改全局默认，审核模型是共享设置。`/auto-review model` 可选择已配置模型或跟随当前会话模型。
+
+`/approval`（别名 `/approve`）先列出可授权命令，Enter 查看完整参数、工作目录和原因。详情默认选择取消；滚动到末尾后，Tab 选择“Approve this action once”，再 Enter 才发送。连续回车和空格均不会授权，Esc 在发送前取消。提交成功后自动返回输入框，失败保留重试入口。`denials` 用于诊断，显式 ID 入口也须经过同样确认。完整工具、参数和 cwd 必须不变且须复审；不生成永久 allow 规则，旧授权在压缩、撤销、重置或重启后失效。
 
 **仅支持交互终端会话。** `autokimi` 禁止 `-p/--prompt`、无终端启动及 ACP/Web 服务；自动化请使用原生 `kimi`。帮助、版本和更新命令可在非交互环境使用。
 
@@ -48,7 +58,7 @@ npm run install:local -- --timeout-ms 90000
 | `test/`                       | 源码还原和安装器的隔离测试                       |
 | `.cache/`、`.artifacts/`      | 本地生成目录，均不进入 Git                       |
 
-完整可构建源码由锁定的官方提交、补丁和 overlay 共同组成。仓库只保存需要维护的差异；不收录官方历史、依赖、编译产物、登录配置、会话和原始评测记录。源码体积上限为 576 KiB，单文件上限为 128 KiB。
+完整可构建源码由锁定的官方提交、补丁和 overlay 共同组成。仓库只保存需要维护的差异；不收录官方历史、依赖、编译产物、登录配置、会话和原始评测记录。源码体积上限为 608 KiB，单文件上限为 128 KiB。
 
 ## 文档
 

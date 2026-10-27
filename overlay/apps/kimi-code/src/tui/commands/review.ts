@@ -15,6 +15,9 @@ import {
 } from './review-state';
 import { formatErrorMessage } from '../utils/event-payload';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
+import { ReviewApprovalComponent } from '../components/dialogs/review-approval';
+
+const pendingApprovals = new Set<string>();
 
 async function submitInteractiveApproval(
   host: SlashCommandHost,
@@ -22,50 +25,52 @@ async function submitInteractiveApproval(
   selected: ApprovalReviewDenial,
   cancelled: () => boolean,
 ): Promise<boolean> {
-  const features = await host.harness.getExperimentalFeatures().catch((error) => {
-    if (!cancelled())
-      host.showError(`Failed to refresh review state: ${formatErrorMessage(error)}`);
-    return undefined;
-  });
-  if (features === undefined || cancelled()) return false;
-  setExperimentalFeatures(features);
-  const feature = features.find((entry) => entry.id === 'approval_review');
-  if (
-    host.session !== session ||
-    host.state.appState.sessionId !== session.id ||
-    feature === undefined ||
-    !effectiveApprovalReview(host.session, feature) ||
-    host.state.appState.permissionMode !== 'manual'
-  ) {
-    if (!cancelled())
-      host.showError('The selected auto-review denial is no longer active.');
-    return false;
-  }
-  const denial = takeApprovalReviewDenial(
-    session.id,
-    selected.toolCallId,
-    selected.challenge,
-  );
-  if (denial === undefined) {
-    if (!cancelled())
-      host.showError(`No eligible auto-review denial: ${selected.toolCallId}`);
-    return false;
-  }
-  if (cancelled()) return false;
+  const key = `${session.id}:${selected.challenge}`;
+  if (pendingApprovals.has(key)) return false;
+  pendingApprovals.add(key);
   try {
-    host.sendNormalUserInput(createApprovalReviewGrantMessage(denial));
+    const features = await host.harness.getExperimentalFeatures();
+    if (cancelled()) return false;
+    setExperimentalFeatures(features);
+    const feature = features.find((entry) => entry.id === 'approval_review');
+    if (
+      host.session !== session ||
+      host.state.appState.sessionId !== session.id ||
+      !effectiveApprovalReview(session, feature) ||
+      host.state.appState.permissionMode !== 'manual'
+    ) {
+      host.showError('The selected auto-review denial is no longer active.');
+      return false;
+    }
+    const denial = approvalReviewDenials(session.id).find(
+      (record) =>
+        record.toolCallId === selected.toolCallId &&
+        record.challenge === selected.challenge,
+    );
+    if (denial === undefined) {
+      host.showError(`No eligible auto-review denial: ${selected.toolCallId}`);
+      return false;
+    }
+    await host.sendReviewApproval(
+      session,
+      createApprovalReviewGrantMessage(denial),
+    );
+    takeApprovalReviewDenial(session.id, denial.toolCallId, denial.challenge);
+    if (!cancelled())
+      host.showNotice(
+        'One-time approval sent.',
+        'The identical action must be proposed again and pass auto-review. No permission rule was changed.',
+      );
+    return true;
   } catch (error) {
     if (!cancelled())
       host.showError(
         `Failed to submit one-time approval: ${formatErrorMessage(error)}`,
       );
     return false;
+  } finally {
+    pendingApprovals.delete(key);
   }
-  host.showNotice(
-    'One-time approval sent.',
-    'The identical action must be proposed again and pass auto-review. No permission rule was changed.',
-  );
-  return true;
 }
 
 function promptInteractiveApproval(
@@ -74,69 +79,42 @@ function promptInteractiveApproval(
   records: readonly ApprovalReviewDenial[],
 ): Promise<void> {
   return new Promise((resolve) => {
-    const defaultHint = '↑↓ navigate · Enter approve once · Esc cancel';
-    let hint = defaultHint;
-    let phase: 'selecting' | 'approving' | 'approved' = 'selecting';
     let cancelled = false;
-    const options: Array<{
-      value: string;
-      label: string;
-      description: string;
-      tone?: 'danger';
-      descriptionTone?: 'success';
-    }> = records.map((record) => ({
-      value: record.toolCallId,
-      label: `✗ ${record.toolName}: ${record.reason}`,
-      description: JSON.stringify(record.args),
-      tone: 'danger',
-    }));
-    const picker = new ChoicePickerComponent({
-      title: 'Approve one denied action',
-      get hint() {
-        return hint;
-      },
-      notice:
-        'One identical retry must pass auto-review again. No permission rule will be changed.',
-      options,
-      initialValue: records.at(-1)?.toolCallId,
-      onSelect: (toolCallId) => {
-        if (phase === 'approved') {
-          host.restoreEditor();
-          resolve();
-          return;
-        }
-        if (phase === 'approving') return;
-        const record = records.find((item) => item.toolCallId === toolCallId);
-        const option = options.find((item) => item.value === toolCallId);
-        if (record === undefined || option === undefined) return;
-        phase = 'approving';
-        hint = 'Approving…';
-        host.state.ui.requestRender();
-        void submitInteractiveApproval(host, session, record, () => cancelled).then(
-          (approved) => {
-            if (cancelled) return;
-            if (!approved) {
-              phase = 'selecting';
-              hint = defaultHint;
-            } else {
-              phase = 'approved';
-              option.label = `✓ ${record.toolName}: ${record.reason}`;
-              option.tone = undefined;
-              option.description = 'Approved once; no permission rule changed.';
-              option.descriptionTone = 'success';
-              hint = 'Approval sent · Enter confirm · Esc cancel';
-            }
-            host.state.ui.requestRender();
-          },
-        );
-      },
-      onCancel: () => {
-        cancelled = true;
-        host.restoreEditor();
-        resolve();
-      },
+    const panel = new ReviewApprovalComponent({
+      records,
+      workDir: session.workDir ?? host.state.appState.workDir,
+      rows: () => host.state.terminal.rows,
+      approve: (record) =>
+        submitInteractiveApproval(host, session, record, () => cancelled),
+      cancel: () => host.restoreEditor(),
+      done: () => host.restoreEditor(),
+      render: () => host.state.ui.requestRender(),
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(panel, () => {
+      cancelled = true;
+      panel.dispose();
+      resolve();
+    });
+  });
+}
+
+function reviewChoice(
+  host: SlashCommandHost,
+  options: ConstructorParameters<typeof ChoicePickerComponent>[0],
+): Promise<void> {
+  return new Promise((resolve) => {
+    host.mountEditorReplacement(
+      new ChoicePickerComponent({
+        ...options,
+        spaceSelect: false,
+        onSelect: (value) => {
+          host.restoreEditor();
+          options.onSelect(value);
+        },
+        onCancel: () => host.restoreEditor(),
+      }),
+      resolve,
+    );
   });
 }
 
@@ -154,12 +132,36 @@ export async function handleReviewCommand(
     );
     return;
   }
-  if (input === '' || input === 'status') {
+  if (input === '') {
+    const enabled = effectiveApprovalReview(host.session, feature);
+    const scope =
+      host.session === undefined ? 'global default' : 'current session';
+    await reviewChoice(host, {
+      title: 'Auto-review settings',
+      notice: `Review switch: ${scope}. Reviewer model: shared configuration.`,
+      noticeTone: 'warning',
+      options: [
+        { value: 'status', label: `Status: ${enabled ? 'ON' : 'OFF'}` },
+        { value: 'on', label: 'Enable review in Always Ask mode' },
+        { value: 'off', label: 'Disable review' },
+        { value: 'model', label: 'Reviewer model' },
+        { value: 'approve', label: 'Review denied actions' },
+      ],
+      onSelect: (value) => {
+        void handleReviewCommand(host, value).catch((error) =>
+          host.showError(formatErrorMessage(error)),
+        );
+      },
+      onCancel: () => {},
+    });
+    return;
+  }
+  if (input === 'status') {
     const config = await host.harness.getConfig();
     const enabled = effectiveApprovalReview(host.session, feature);
     host.setAppState({ approvalReviewEnabled: enabled });
     host.showNotice(
-      `Auto-review: ${enabled ? 'ON' : 'OFF'}; reviewer: ${config.permission?.review?.model ?? 'current session model'}.`,
+      `Auto-review: ${enabled ? 'ON' : 'OFF'}; reviewer: ${config.permission?.review?.model === '@session' ? 'current session model' : (config.permission?.review?.model ?? 'current session model')}.`,
       !enabled
         ? 'Disabled: tool approvals follow your selected permission mode.'
         : host.state.appState.permissionMode === 'manual'
@@ -175,10 +177,7 @@ export async function handleReviewCommand(
     input.startsWith('approve ')
   ) {
     const session = host.session;
-    if (
-      session === undefined ||
-      host.state.appState.sessionId !== session.id
-    ) {
+    if (session === undefined || host.state.appState.sessionId !== session.id) {
       host.showError('Auto-review denials require the current active session.');
       return;
     }
@@ -209,10 +208,7 @@ export async function handleReviewCommand(
     if (input === 'approve' || input === 'interactive-approve') {
       const records = approvalReviewDenials(session.id);
       if (records.length === 0) {
-        host.showNotice(
-          'Auto-review denials: 0',
-          'No eligible model denials.',
-        );
+        host.showNotice('Auto-review denials: 0', 'No eligible model denials.');
         return;
       }
       await promptInteractiveApproval(host, session, records);
@@ -223,35 +219,53 @@ export async function handleReviewCommand(
       host.showError('Usage: /auto-review approve [toolCallId]');
       return;
     }
-    const denial = takeApprovalReviewDenial(session.id, toolCallId);
+    const denial = approvalReviewDenials(session.id).find(
+      (record) => record.toolCallId === toolCallId,
+    );
     if (denial === undefined) {
       host.showError(`No eligible auto-review denial: ${toolCallId}`);
       return;
     }
-    try {
-      host.sendNormalUserInput(createApprovalReviewGrantMessage(denial));
-    } catch (error) {
+    await promptInteractiveApproval(host, session, [denial]);
+    return;
+  }
+  if (input === 'model' || input.startsWith('model ')) {
+    const config = await host.harness.getConfig();
+    const models = config.models ?? {};
+    if (input === 'model') {
+      await reviewChoice(host, {
+        title: 'Select reviewer model',
+        notice:
+          'Shared setting for all sessions. @session follows each session model.',
+        currentValue: config.permission?.review?.model ?? '@session',
+        searchable: true,
+        options: [
+          { value: '@session', label: 'Follow current session model' },
+          ...Object.keys(models)
+            .filter((alias) => alias !== '@session')
+            .map((alias) => ({ value: alias, label: alias })),
+        ],
+        onSelect: (value) => {
+          void handleReviewCommand(host, `model ${value}`).catch((error) =>
+            host.showError(formatErrorMessage(error)),
+          );
+        },
+        onCancel: () => {},
+      });
+      return;
+    }
+    const model = input.slice(6).trim();
+    if (model !== '@session' && !Object.hasOwn(models, model)) {
       host.showError(
-        `Failed to submit one-time approval: ${formatErrorMessage(error)}`,
+        `Unknown reviewer model alias: ${model}. Use /auto-review model to select a configured model.`,
       );
       return;
     }
+    await host.harness.setConfig({ permission: { review: { model } } });
     host.showNotice(
-      'One-time approval sent.',
-      'The identical action must be proposed again and pass auto-review. No permission rule was changed.',
+      `Approval reviewer model: ${model === '@session' ? 'current session model' : model}`,
+      'Scope: shared configuration for all sessions.',
     );
-    return;
-  }
-  if (input.startsWith('model ')) {
-    const model = input.slice(6).trim();
-    if (model.length === 0 || /\s/.test(model)) {
-      host.showError('Usage: /auto-review model <configured-model-alias>');
-      return;
-    }
-    await host.harness.setConfig({
-      permission: { review: { model } },
-    });
-    host.showNotice(`Approval reviewer model: ${model}`);
     return;
   }
   if (input !== 'on' && input !== 'off') {
@@ -305,11 +319,12 @@ export async function handleReviewCommand(
     host.refreshSlashCommandAutocomplete();
     host.showNotice(
       `Auto-review: ${enabled ? 'ON' : 'OFF'}`,
-      enabled
-        ? host.state.appState.permissionMode === 'manual'
-          ? 'Model checks pending tool approvals. Uncertain or failed reviews deny the action without a permission prompt.'
-          : 'Auto-review is enabled but paused in the current permission mode. Select Always Ask to review pending approvals.'
-        : 'Tool approvals return to your selected permission mode.',
+      `Scope: ${host.session === undefined ? 'global default' : 'current session'}. ` +
+        (enabled
+          ? host.state.appState.permissionMode === 'manual'
+            ? 'Model checks pending tool approvals. Uncertain or failed reviews deny the action without a permission prompt.'
+            : 'Auto-review is enabled but paused in the current permission mode. Select Always Ask to review pending approvals.'
+          : 'Tool approvals return to your selected permission mode.'),
     );
   } catch (error) {
     host.showError(

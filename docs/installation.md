@@ -1,5 +1,28 @@
 # 安装、更新和卸载
 
+## 一键安装
+
+仓库公开后：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+```
+
+安装脚本支持 macOS/Linux 的 ARM64 和 x64；当前实测 macOS ARM64。需要 curl、tar，源码路径还需要 Git。优先使用 GitHub Release 中与 Node 平台和架构匹配的运行包，核对 `SHA256SUMS`，再调用随包安装器；无发布包时自动从 `main` 构建，Kimi 版本仍由项目锁文件固定。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
+
+缺少 Node.js ≥24.15.0 时，脚本校验官方 Node 包摘要并安装到 `<home>/autokimi/tools/`，不修改系统 Node。默认 HOME 使用 `AUTOKIMI_HOME`、`KIMI_CODE_HOME`、`~/.kimi-code`；`--home` 优先。脚本不改 shell 配置，完成后打印启动路径和需要的 PATH 命令。不要移动安装器选择的 Node 路径。
+
+本地检出目录支持以下入口；私有阶段须有 GitHub 仓库访问权限，下载私有 Release 可显式提供 `GH_TOKEN`：
+
+```sh
+sh install.sh --source
+sh install.sh --version v0.2.2
+sh install.sh --package /path/to/autokimi-v0.2.2-darwin-arm64.tar.gz --home /path/to/kimi-home
+sh install.sh --timeout-ms 90000
+```
+
+`--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建该标签。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会启用审核并切回 Always Ask；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
+
 ## 构建并安装
 
 先完成官方 Kimi 登录或模型配置。使用 Node.js ≥24.15.0 和 pnpm 10.33.0；若已有不同版本，可用自己的 Node 版本管理工具安装，或将 `AUTOKIMI_PNPM` 指向指定版本的 pnpm 可执行文件。
@@ -35,6 +58,18 @@ node tools/install.mjs --package .artifacts/runtime --timeout-ms 90000
 运行包包含 CLI、配置 SDK、原生预编译资源、网页资源和生产依赖，release 由整包内容、文件权限和相对链接共同决定。安装已打好的包无需重新构建或依赖原开发目录，但会重新核验完整内容。安装脚本本身仍从此仓库运行。包与具体平台相关；不要把 macOS 的可选原生依赖包直接用于 Linux。
 
 `--prepare` 的目标必须是新目录，生成源码必须通过锁定提交、输入指纹和源码状态校验。再次打包时选择新路径，或在确认不需要旧包后自行清理。
+
+## 维护者打包 Release
+
+在目标系统和架构上完成构建与测试、提交源码后执行：
+
+```sh
+npm run package:release
+```
+
+该命令要求源码无未提交修改，输出 `.artifacts/release/autokimi-v<版本>-<平台>-<架构>.tar.gz` 和 `SHA256SUMS`，包含启动运行所需依赖、许可和独立安装工具。运行包与平台、架构绑定，安装器拒绝不匹配的包。重复文件名会报错，避免覆盖已经准备的产物。
+
+将已验证的平台包及合并的 `SHA256SUMS` 手动上传至对应 `v<版本>` 的 GitHub Release 后，一键脚本即可优先使用它们。无需先启用 CI；没有发布包时仍可通过源码路径安装。
 
 ## 隔离配置或离线开发
 

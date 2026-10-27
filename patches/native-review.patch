@@ -87,7 +87,7 @@ index 777060b..a1de65f 100644
    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
    if (mode !== 'manual') {
 diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
-index 898e159..71316b0 100644
+index 898e159..620b1ac 100644
 --- a/apps/kimi-code/src/tui/commands/dispatch.ts
 +++ b/apps/kimi-code/src/tui/commands/dispatch.ts
 @@ -67,6 +67,7 @@ import {
@@ -98,7 +98,15 @@ index 898e159..71316b0 100644
  import { handleRemoteControlCommand, handleWebCommand } from './web';
  
  // ---------------------------------------------------------------------------
-@@ -473,6 +474,12 @@ async function handleBuiltInSlashCommand(
+@@ -195,6 +196,7 @@ export interface SlashCommandHost {
+   createNewSession(): Promise<void>;
+   showSessionPicker(): Promise<void>;
+   sendNormalUserInput(text: string): void;
++  sendReviewApproval(session: Session, text: string): Promise<void>;
+   /**
+    * Submit a prompt that explicitly activates one or more skills inline
+    * (v2 engine only): all activations ride the same submission as the prompt
+@@ -473,6 +475,12 @@ async function handleBuiltInSlashCommand(
      case 'permission':
        showPermissionPicker(host);
        return;
@@ -207,7 +215,7 @@ index c227a0c..db09ac9 100644
        tc.appendProgress(text, { replace: event.update.replace === true });
        return;
 diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
-index c4a3247..32fffb8 100644
+index c4a3247..bcccbc3 100644
 --- a/apps/kimi-code/src/tui/kimi-tui.ts
 +++ b/apps/kimi-code/src/tui/kimi-tui.ts
 @@ -69,6 +69,10 @@ import {
@@ -266,7 +274,38 @@ index c4a3247..32fffb8 100644
      this.state.footer.dispose();
      for (const dispose of this.reverseRpcDisposers) {
        dispose();
-@@ -2895,9 +2923,18 @@ export class KimiTUI {
+@@ -1481,6 +1509,30 @@ export class KimiTUI {
+     this.updateQueueDisplay();
+   }
+ 
++  async sendReviewApproval(session: Session, text: string): Promise<void> {
++    if (this.session !== session || this.state.appState.sessionId !== session.id ||
++        this.state.appState.model.trim().length === 0 || this.deferUserMessages ||
++        this.state.appState.streamingPhase !== 'idle' || this.state.appState.isCompacting ||
++        this.state.queuedMessages.length > 0 || this.state.queuedMessageDispatchPending) {
++      throw new Error('The session must be idle with a configured model before sending an approval.');
++    }
++    const entry: TranscriptEntry = { id: nextTranscriptId(), kind: 'user', turnId: undefined,
++      renderMode: 'plain', content: text };
++    this.appendTranscriptEntry(entry);
++    this.beginSessionRequest();
++    try {
++      await this.trackPendingEntries([entry], this.state.appState.goal?.status === 'active'
++        ? session.steer(text) : session.prompt(text));
++    } catch (error) {
++      if (this.session === session) {
++        this.removeTranscriptEntries([entry]);
++        this.setAppState({ streamingPhase: 'idle' });
++        this.resetLivePane();
++      }
++      throw error;
++    }
++  }
++
+   async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
+     if (this.btwPanelController.sendUserInput(text)) return;
+     if (this.state.appState.model.trim().length === 0) {
+@@ -2895,9 +2947,18 @@ export class KimiTUI {
    }
  
    async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -286,7 +325,7 @@ index c4a3247..32fffb8 100644
        model: status.model ?? '',
        thinkingEffort: status.thinkingEffort,
        permissionMode: status.permission,
-@@ -4402,11 +4439,13 @@ export class KimiTUI {
+@@ -4402,11 +4463,13 @@ export class KimiTUI {
  
    /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
    noteCompactionFinished(): void {
@@ -363,7 +402,7 @@ index 08883eb..4426839 100644
      const state: AppState = {
        ...baseState,
 diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
-index 25b21bc..4356d05 100644
+index 25b21bc..4b4f80b 100644
 --- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
 +++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
 @@ -69,6 +69,10 @@ import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
@@ -495,6 +534,38 @@ index 25b21bc..4356d05 100644
    function pendingSteer(): { session: ReturnType<typeof makeSession>; resolve: () => void; reject: (error: Error) => void } {
      let resolve!: () => void;
      let reject!: (error: Error) => void;
+@@ -12925,3 +13025,31 @@ describe('transcript fold block clicks', () => {
+     expect(driver.state.toolOutputExpanded).toBe(true);
+   });
+ });
++
++
++describe('approval review submission acknowledgement', () => {
++  it('submits the grant directly to the main session without cache or media interception', async () => {
++    const { driver, session } = await makeDriver();
++    const cache = (driver as unknown as { cacheHint: { maybeInterceptOnSubmit: () => boolean } }).cacheHint;
++    const intercept = vi.spyOn(cache, 'maybeInterceptOnSubmit');
++    let acknowledge!: () => void;
++    session.prompt.mockImplementationOnce(() => new Promise<void>((resolve) => { acknowledge = resolve; }));
++    const pending = KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant');
++    expect(session.prompt).toHaveBeenCalledWith('review-grant');
++    expect(intercept).not.toHaveBeenCalled();
++    expect(driver.state.appState.streamingPhase).toBe('waiting');
++    acknowledge(); await pending;
++  });
++
++  it('rejects unset models and restores an idle UI after a rejected submission', async () => {
++    const { driver, session } = await makeDriver();
++    driver.state.appState.model = '';
++    await expect(KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant')).rejects.toThrow('configured model');
++    expect(session.prompt).not.toHaveBeenCalled();
++    driver.state.appState.model = 'k2';
++    session.prompt.mockRejectedValueOnce(new Error('busy'));
++    await expect(KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant')).rejects.toThrow('busy');
++    expect(driver.state.appState.streamingPhase).toBe('idle');
++    expect(driver.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.content === 'review-grant')).toBe(false);
++  });
++});
 diff --git a/packages/agent-core-v2/docs/config-manifest.toml b/packages/agent-core-v2/docs/config-manifest.toml
 index a82cc33..aace19b 100644
 --- a/packages/agent-core-v2/docs/config-manifest.toml
