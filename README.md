@@ -4,7 +4,7 @@
 
 当工具操作进入待审批状态时，审核器依据用户授权和具体操作返回 **通过或拒绝**。不确定、超时或审核失败均拒绝，并说明原因；不会转交人工批准。可恢复的模型服务错误会自动退避重试，连续工具级基础设施故障进入短暂冷却；只有连续或累计的安全拒绝会停止当前轮次。
 
-这是基于官方源码的轻量补丁项目。当前固定 Kimi Code **2.3.0**，使用已有 Kimi 登录、provider 和模型配置。它通过引擎权限入口和 SDK 接入原生 TUI，需要独立的 JavaScript 运行时；启动脚本负责选择该运行时。
+这是基于官方源码的轻量补丁项目。当前固定 Kimi Code **2.3.3**，使用已有 Kimi 登录、provider 和模型配置。它通过引擎权限入口和 SDK 接入原生 TUI，需要独立的 JavaScript 运行时；启动脚本负责选择该运行时。
 
 ## 安装
 
@@ -59,7 +59,7 @@ npm run install:local -- --timeout-ms 90000
 - [超时与常见问题](docs/troubleshooting.md)
 - [验证范围与已知限制](docs/verification.md)
 
-日常构建固定 Kimi **2.3.0**，MCP SDK 固定 **1.32.2**。`autokimi update` 取得本项目最新源码并验证候选，`--install` 才安装；`autokimi upgrade` 同步项目修复并执行完整升级。`autokimi --version` 显示项目版本和源码身份。首次启用此更新机制须从 Git 重建安装；详见 [更新说明](docs/installation.md#更新)。
+日常构建固定 Kimi **2.3.3**，MCP SDK 固定 **1.32.2**。`autokimi update` 取得本项目最新源码并验证候选，`--install` 才安装；`autokimi upgrade` 同步项目修复并执行完整升级。`autokimi --version` 显示项目版本和源码身份。首次启用此更新机制须从 Git 重建安装；详见 [更新说明](docs/installation.md#更新)。
 
 模型审核会产生额外请求和费用，也可能误拒绝或误放行；它不是操作系统沙箱。参见[验证范围](docs/verification.md)。
 

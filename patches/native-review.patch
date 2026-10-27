@@ -56,10 +56,10 @@ index a881e53..ff1f0af 100644
  }
  
 diff --git a/apps/kimi-code/src/tui/commands/config.ts b/apps/kimi-code/src/tui/commands/config.ts
-index 5ba92a4..f399fd7 100644
+index 777060b..a1de65f 100644
 --- a/apps/kimi-code/src/tui/commands/config.ts
 +++ b/apps/kimi-code/src/tui/commands/config.ts
-@@ -49,6 +49,7 @@ import {
+@@ -60,6 +60,7 @@ import {
  import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
  import { showUsage } from './info';
  import { setExperimentalFeatures } from './experimental-flags';
@@ -67,7 +67,7 @@ index 5ba92a4..f399fd7 100644
  import type { SlashCommandHost } from './dispatch';
  
  // ---------------------------------------------------------------------------
-@@ -840,8 +841,8 @@ export async function applyUpdatePreferenceChoice(
+@@ -904,8 +905,8 @@ export async function applyUpdatePreferenceChoice(
    host.showStatus(`Automatic updates ${autoInstall ? 'enabled' : 'disabled'}.`);
  }
  
@@ -78,7 +78,7 @@ index 5ba92a4..f399fd7 100644
      host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
      return;
    }
-@@ -858,6 +859,7 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
+@@ -922,6 +923,7 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
      return;
    }
  
@@ -87,7 +87,7 @@ index 5ba92a4..f399fd7 100644
    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
    if (mode !== 'manual') {
 diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
-index 927e1fb..f615fe2 100644
+index 898e159..71316b0 100644
 --- a/apps/kimi-code/src/tui/commands/dispatch.ts
 +++ b/apps/kimi-code/src/tui/commands/dispatch.ts
 @@ -67,6 +67,7 @@ import {
@@ -207,10 +207,10 @@ index c227a0c..db09ac9 100644
        tc.appendProgress(text, { replace: event.update.replace === true });
        return;
 diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
-index 5fe1e3e..4e23bd4 100644
+index c4a3247..32fffb8 100644
 --- a/apps/kimi-code/src/tui/kimi-tui.ts
 +++ b/apps/kimi-code/src/tui/kimi-tui.ts
-@@ -68,6 +68,10 @@ import {
+@@ -69,6 +69,10 @@ import {
    type SkillListSession,
  } from './commands';
  import * as slashCommands from './commands/dispatch';
@@ -221,7 +221,7 @@ index 5fe1e3e..4e23bd4 100644
  import { CacheHintController } from './controllers/cache-hint-controller';
  import { BannerComponent } from './components/chrome/banner';
  import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
-@@ -354,6 +358,8 @@ export class KimiTUI {
+@@ -355,6 +359,8 @@ export class KimiTUI {
    private readonly questionController = new QuestionController();
    private readonly reverseRpcDisposers: Array<() => void> = [];
    private surveySettingSubscription: Unsubscribe | undefined;
@@ -230,7 +230,7 @@ index 5fe1e3e..4e23bd4 100644
    private skillCommands: readonly KimiSlashCommand[] = [];
    readonly skillCommandMap = new Map<string, string>();
    private pluginCommands: readonly KimiSlashCommand[] = [];
-@@ -513,6 +519,26 @@ export class KimiTUI {
+@@ -514,6 +520,26 @@ export class KimiTUI {
        if (change.domain !== 'disableFeedbackSurvey') return;
        this.setAppState({ disableFeedbackSurvey: change.value === true ? true : undefined });
      });
@@ -257,7 +257,7 @@ index 5fe1e3e..4e23bd4 100644
      this.streamingUI = new StreamingUIController(this);
      this.authFlow = new AuthFlowController(this);
      this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
-@@ -1108,6 +1134,8 @@ export class KimiTUI {
+@@ -1110,6 +1136,8 @@ export class KimiTUI {
      this.surveyController.dispose();
      this.surveySettingSubscription?.();
      this.surveySettingSubscription = undefined;
@@ -266,7 +266,7 @@ index 5fe1e3e..4e23bd4 100644
      this.state.footer.dispose();
      for (const dispose of this.reverseRpcDisposers) {
        dispose();
-@@ -2914,9 +2942,18 @@ export class KimiTUI {
+@@ -2895,9 +2923,18 @@ export class KimiTUI {
    }
  
    async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -286,7 +286,7 @@ index 5fe1e3e..4e23bd4 100644
        model: status.model ?? '',
        thinkingEffort: status.thinkingEffort,
        permissionMode: status.permission,
-@@ -4421,11 +4458,13 @@ export class KimiTUI {
+@@ -4402,11 +4439,13 @@ export class KimiTUI {
  
    /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
    noteCompactionFinished(): void {
@@ -301,7 +301,7 @@ index 5fe1e3e..4e23bd4 100644
    }
  
 diff --git a/apps/kimi-code/src/tui/types.ts b/apps/kimi-code/src/tui/types.ts
-index 1a5930f..dc4f5f1 100644
+index 24347ac..4ba28f7 100644
 --- a/apps/kimi-code/src/tui/types.ts
 +++ b/apps/kimi-code/src/tui/types.ts
 @@ -32,6 +32,7 @@ export interface AppState {
@@ -363,10 +363,10 @@ index 08883eb..4426839 100644
      const state: AppState = {
        ...baseState,
 diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
-index 555d864..395c7c7 100644
+index 25b21bc..4356d05 100644
 --- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
 +++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
-@@ -61,6 +61,10 @@ import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
+@@ -69,6 +69,10 @@ import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
  import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
  import type { SurveyController } from '#/tui/controllers/survey-controller';
  import { handleFeedbackCommand } from '#/tui/commands/info';
@@ -377,7 +377,7 @@ index 555d864..395c7c7 100644
  import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
  import { openUrl } from '#/utils/open-url';
  import { createFeedbackArchivePath } from '../../src/feedback/archive';
-@@ -135,7 +139,10 @@ interface MessageDriver {
+@@ -172,7 +176,10 @@ interface MessageDriver {
      notifications: import('#/tui/controllers/notify').NotifyController;
      startSubscription(): void;
      handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
@@ -388,15 +388,15 @@ index 555d864..395c7c7 100644
    init(): Promise<boolean>;
    handleUserInput(text: string): void;
    toggleToolOutputExpansion(): void;
-@@ -513,6 +520,7 @@ async function makeExportedSessionZip(content = 'session zip'): Promise<string>
+@@ -562,6 +569,7 @@ async function makeExportedSessionZip(content = 'session zip'): Promise<string>
  }
  
  afterEach(async () => {
 +  clearApprovalReviewDenials();
    resetCapabilitiesCache();
-   for (const dir of tempDirs.splice(0)) {
-     await rm(dir, { recursive: true, force: true });
-@@ -5427,6 +5435,98 @@ command = "vim"
+   resetModelSwitchConfirmConfigCache();
+   resetEffortSwitchConfigCache();
+@@ -5525,6 +5533,98 @@ command = "vim"
      driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', extra), () => {});
    }
  

@@ -18,7 +18,11 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 import { install, preparePackage } from '../tools/install.mjs';
-import { readJson } from '../tools/common.mjs';
+import { projectRoot, readJson, readUpstreamLock } from '../tools/common.mjs';
+
+const fixtureVersion = (await readUpstreamLock()).version;
+const projectVersion = (await readJson(join(projectRoot, 'package.json')))
+  .version;
 
 async function fixture(t, onVersion = '') {
   const root = await mkdtemp(join(tmpdir(), "autokimi-test's-"));
@@ -35,14 +39,14 @@ async function fixture(t, onVersion = '') {
     await mkdir(path, { recursive: true });
   await writeFile(
     join(app, 'dist', 'main.mjs'),
-    `// model-approval-review\nif(process.argv.includes('--version')){${onVersion}console.log('2.3.0')}else console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),home:process.env.KIMI_CODE_HOME,noUpdate:process.env.KIMI_CODE_NO_AUTO_UPDATE}));\n`,
+    `// model-approval-review\nif(process.argv.includes('--version')){${onVersion}console.log(${JSON.stringify(fixtureVersion)})}else console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),home:process.env.KIMI_CODE_HOME,noUpdate:process.env.KIMI_CODE_NO_AUTO_UPDATE}));\n`,
   );
   await writeFile(join(app, 'dist-web', 'index.html'), '<html></html>');
   await writeFile(
     join(app, 'package.json'),
     JSON.stringify({
       name: 'fixture-app',
-      version: '2.3.0',
+      version: fixtureVersion,
       type: 'module',
       dependencies: { 'fixture-dependency': '1.0.0' },
       optionalDependencies: { 'fixture-unavailable': '1.0.0' },
@@ -318,12 +322,11 @@ test('copies a symlinked package root into a self-contained release', async (t) 
   await symlink(f.package, alias);
   const receipt = await install({ ...f, package: alias });
   await rm(f.package, { recursive: true, force: true });
-  assert.match(
-    execFileSync(receipt.launcher, ['--version'], {
-      encoding: 'utf8',
-    }).trim(),
-    /AutoKimi 0\.2\.0[\s\S]*Kimi 2\.3\.0/,
-  );
+  const identity = execFileSync(receipt.launcher, ['--version'], {
+    encoding: 'utf8',
+  }).trim();
+  assert.ok(identity.startsWith(`AutoKimi ${projectVersion} (`));
+  assert.ok(identity.endsWith(`Kimi ${fixtureVersion}`));
 });
 
 test('refuses a symlinked existing release before changing config', async (t) => {

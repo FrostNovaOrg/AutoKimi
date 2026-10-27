@@ -1,7 +1,7 @@
 AutoKimi contains modifications and integration patches for Kimi Code.
 
 Upstream: https://github.com/MoonshotAI/kimi-code
-Pinned commit: b5e28fd6beac752a2cdcc0ff2f5fdf40e6494fbb
+Pinned commit: ec495f0cb00f6db9a9118bf979112886f4264a41
 Copyright (c) 2026 Moonshot AI
 License: MIT (see LICENSE.upstream)
 

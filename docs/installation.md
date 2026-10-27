@@ -57,10 +57,10 @@ npm run build -- --offline --store-dir /path/to/pnpm-store
 
 `git pull` 后重新构建、安装。修改 overlay 或补丁后，源码准备器会拒绝复用旧缓存，避免抹掉开发改动：先保留 `.cache/kimi-code` 内需要的修改，再自行移走或删除该生成目录，重新构建。准备器不会自动清空已有目录。
 
-官方 `kimi` 更新不影响已安装的 AutoKimi，日常仍固定自己的基线。若需由维护者显式尝试新版本，可运行：
+官方 `kimi` 更新不影响已安装的 AutoKimi，日常仍固定自己的基线。若需由维护者显式验证某个正式版本，可运行：
 
 ```sh
-npm run follow:upstream -- --version 2.3.1
+npm run follow:upstream -- --version 2.3.3
 ```
 
 该命令验证正式版本的 tag、npm integrity、签名与 provenance，确认它们指向同一个 commit，再在独立目录应用补丁、构建、测试和打包。不会修改根 `upstream.lock.json`，也不会自动安装。报告和 `candidate.lock.json` 位于 `.artifacts/upstream-candidates/` 下；按报告路径使用 `npm run install:local -- --lock <path>` 才会切换，只有显式 `--install` 才会在跟随流程中调用安装器。

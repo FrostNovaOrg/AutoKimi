@@ -2,7 +2,7 @@
 
 ## 只看到 `/auto`，没有 `/auto-review`
 
-先确认运行的是 `autokimi`，而非官方 `kimi`。官方 `/auto` 是 Never Ask。安装完成后可用 `command -v autokimi` 查看脚本位置，并执行 `autokimi --version`。版本号仍是上游 2.3.0；判断功能以 TUI 中 `/auto-review status` 是否可用为准。
+先确认运行的是 `autokimi`，而非官方 `kimi`。官方 `/auto` 是 Never Ask。安装完成后可用 `command -v autokimi` 查看脚本位置，并执行 `autokimi --version`。`--version` 会同时显示 AutoKimi 版本、源码身份和上游 Kimi 2.3.3；审核状态以 TUI 中 `/auto-review status` 是否可用为准。
 
 如果命令不存在，确认所选配置目录的 `bin` 已加入 PATH。若同名命令早已存在，安装器会拒绝覆盖，需要先确认其归属。
 

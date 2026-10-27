@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { projectRoot, readUpstreamLock, sha256 } from './common.mjs';
+import { projectRoot, readJson, readUpstreamLock, sha256 } from './common.mjs';
 import { install, preparePackage } from './install.mjs';
 
 const { values } = parseArgs({
@@ -57,7 +57,13 @@ policy = "preserve this fixture policy"
   const identity = execFileSync(first.launcher, ['--version'], {
     encoding: 'utf8',
   });
-  assert.match(identity, /AutoKimi 0\.2\.0/);
+  assert.ok(
+    identity.startsWith(
+      'AutoKimi ' +
+        (await readJson(join(projectRoot, 'package.json'))).version +
+        ' (',
+    ),
+  );
   assert.ok(identity.includes('Kimi ' + lock.version));
   for (const args of [
     ['-p', 'task'],
