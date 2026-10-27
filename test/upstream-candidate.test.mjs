@@ -1,11 +1,47 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
   resolveCandidateVersion,
   verifyNpmEvidence,
+  verifyNpmSignatures,
 } from '../tools/upstream-candidate.mjs';
+
+test('signature checks select the isolated npm prefix instead of an ancestor project', async (t) => {
+  const parent = await mkdtemp(join(tmpdir(), 'autokimi-signatures-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const manifest = '{"name":"ancestor-project","version":"1.0.0"}\n';
+  const path = join(parent, 'package.json');
+  await writeFile(path, manifest);
+  const directory = join(parent, 'audit');
+  const commands = [];
+  const result = await verifyNpmSignatures(
+    { directory, version: '2.3.2' },
+    (command, args, options) => {
+      const prefix = execFileSync(
+        command,
+        ['prefix', ...args.filter((arg) => arg.startsWith('--prefix='))],
+        {
+          cwd: options.cwd,
+          env: options.env,
+          encoding: 'utf8',
+        },
+      ).trim();
+      assert.equal(realpathSync(prefix), realpathSync(directory));
+      commands.push(args[0]);
+      return 'verified-fixture';
+    },
+  );
+  assert.equal(result, 'verified-fixture');
+  assert.deepEqual(commands, ['install', 'audit']);
+  assert.equal(await readFile(path, 'utf8'), manifest);
+});
 
 function attestation(payload) {
   return {

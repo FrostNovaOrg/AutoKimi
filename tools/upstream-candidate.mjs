@@ -160,8 +160,9 @@ export function verifyNpmEvidence(input) {
   };
 }
 
-export async function verifyNpmSignatures(options) {
-  const { directory, version } = options;
+export async function verifyNpmSignatures(options, execute = run) {
+  const { version } = options;
+  const directory = resolve(options.directory);
   await mkdir(directory, { recursive: true });
   const env = {
     ...process.env,
@@ -171,21 +172,31 @@ export async function verifyNpmSignatures(options) {
     NPM_CONFIG_FUND: 'false',
     NPM_CONFIG_PROGRESS: 'false',
   };
-  run(
+  execute(
     'npm',
     [
       'install',
       '--ignore-scripts',
+      `--prefix=${directory}`,
       `--registry=${NPM_REGISTRY}`,
       `${NPM_PACKAGE}@${version}`,
     ],
     { cwd: directory, env },
   );
-  return run('npm', ['audit', 'signatures', `--registry=${NPM_REGISTRY}`], {
-    cwd: directory,
-    env,
-    capture: true,
-  });
+  return execute(
+    'npm',
+    [
+      'audit',
+      'signatures',
+      `--prefix=${directory}`,
+      `--registry=${NPM_REGISTRY}`,
+    ],
+    {
+      cwd: directory,
+      env,
+      capture: true,
+    },
+  );
 }
 
 function normalizedDependencies(value) {
