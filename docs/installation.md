@@ -1,8 +1,10 @@
 # 安装、更新和卸载
 
+[English](en/installation.md) | [简体中文](installation.md)
+
 ## 一键安装
 
-仓库公开后：
+在终端执行：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
@@ -12,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.
 
 缺少 Node.js ≥24.15.0 时，脚本校验官方 Node 包摘要并安装到 `<home>/autokimi/tools/`，不修改系统 Node。默认 HOME 使用 `AUTOKIMI_HOME`、`KIMI_CODE_HOME`、`~/.kimi-code`；`--home` 优先。脚本不改 shell 配置，完成后打印启动路径和需要的 PATH 命令。不要移动安装器选择的 Node 路径。
 
-本地检出目录支持以下入口；私有阶段须有 GitHub 仓库访问权限，下载私有 Release 可显式提供 `GH_TOKEN`：
+本地检出目录支持以下安装方式：
 
 ```sh
 sh install.sh --source
@@ -100,7 +102,7 @@ npm run follow:upstream -- --version 2.3.3
 
 该命令验证正式版本的 tag、npm integrity、签名与 provenance，确认它们指向同一个 commit，再在独立目录应用补丁、构建、测试和打包。不会修改根 `upstream.lock.json`，也不会自动安装。报告和 `candidate.lock.json` 位于 `.artifacts/upstream-candidates/` 下；按报告路径使用 `npm run install:local -- --lock <path>` 才会切换，只有显式 `--install` 才会在跟随流程中调用安装器。
 
-安装后的 `autokimi update` 先从本项目固定 GitHub 仓库取得 `main` 的最新源码，再使用其中的补丁验证 Kimi 候选；默认只验证，`autokimi update --install` 才安装。`--revision <完整提交 SHA>` 可固定 AutoKimi 源码，`--version` 选择 Kimi 基线。源代码检查或下载失败即停止，不回退到旧补丁。运行包额外包含 `build-kit/` 中的 overlay、补丁、构建工具、测试和文档，用于独立重建；更新工作目录位于 `KIMI_CODE_HOME/autokimi/update-work`，不写入 release。项目更新报告 `project-update.json` 记录源码身份，`runtime/report.json` 记录候选及安装状态。
+安装后的 `autokimi update` 先从本项目固定 GitHub 仓库取得 `main` 的最新源码，再使用其中的补丁验证 Kimi 候选；默认只验证，`autokimi update --install` 才安装。`--revision <完整提交 SHA>` 可固定 AutoKimi 源码；这里的 **`--version` 选择 Kimi 基线**，与 `install.sh --version` 选择 AutoKimi Release 的含义不同。源代码检查或下载失败即停止，不回退到旧补丁。运行包额外包含 `build-kit/` 中的 overlay、补丁、构建工具、测试和文档，用于独立重建；更新工作目录位于 `KIMI_CODE_HOME/autokimi/update-work`，不写入 release。项目更新报告 `project-update.json` 记录源码身份，`runtime/report.json` 记录候选及安装状态。
 
 `autokimi --version` 显示 AutoKimi 版本、源码提交、修改状态、源码摘要及 Kimi 版本；归档源码没有 Git 提交时会明确标记。包清单和安装回执保存同一身份信息。
 

@@ -1,5 +1,7 @@
 # 安全政策
 
+[English](en/SECURITY.md) | [简体中文](SECURITY.md)
+
 AutoKimi 是模型权限审核层，不是系统沙箱。默认只审核原权限系统产生的待审批请求；已有允许规则及关闭审核的模式会影响覆盖范围。模型可能误判，权限策略、审核预算和配置仍由使用者管理。实现细节见 [架构](architecture.md) 和 [验证限制](verification.md)。
 
 ## 支持范围

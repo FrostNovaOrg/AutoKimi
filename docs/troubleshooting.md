@@ -1,5 +1,7 @@
 # 常见问题
 
+[English](en/troubleshooting.md) | [简体中文](troubleshooting.md)
+
 ## 只看到 `/auto`，没有 `/auto-review`
 
 先确认运行的是 `autokimi`，而非官方 `kimi`。官方 `/auto` 是 Never Ask。安装完成后可用 `command -v autokimi` 查看脚本位置，并执行 `autokimi --version`。`--version` 会同时显示 AutoKimi 版本、源码身份和上游 Kimi 2.3.3；审核状态以 TUI 中 `/auto-review status` 是否可用为准。

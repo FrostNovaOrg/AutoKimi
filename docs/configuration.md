@@ -1,5 +1,7 @@
 # 配置与审核行为
 
+[English](en/configuration.md) | [简体中文](configuration.md)
+
 ## 开关与权限模式
 
 ```toml

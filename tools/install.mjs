@@ -292,6 +292,7 @@ export async function preparePackage(
       'upstream.lock.json',
       'package.json',
       'README.md',
+      'README.zh-CN.md',
       'install.sh',
       'AGENTS.md',
       'LICENSE',

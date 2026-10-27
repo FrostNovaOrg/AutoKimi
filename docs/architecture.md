@@ -1,5 +1,7 @@
 # 原生接入架构
 
+[English](en/architecture.md) | [简体中文](architecture.md)
+
 ```mermaid
 flowchart TD
   A[工具请求] --> B[原有权限规则]

@@ -451,7 +451,11 @@ test('packages the build kit and routes updates through fresh project source', a
     'build-kit/overlay',
     'build-kit/patches/native-review.patch',
     'build-kit/package.json',
+    'build-kit/README.md',
+    'build-kit/README.zh-CN.md',
     'build-kit/docs',
+    'build-kit/docs/en/installation.md',
+    'build-kit/docs/en/configuration.md',
     'build-kit/test',
   ])
     assert.equal(existsSync(join(receipt.distribution, path)), true, path);
