@@ -7,7 +7,7 @@
 在终端执行：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a867a8b555fac880f13e37dda37c11/install.sh | sh -s -- --revision fa6df64ae9a867a8b555fac880f13e37dda37c11
 ```
 
 安装脚本支持 macOS/Linux 的 ARM64 和 x64；macOS ARM64 已实测，Linux x64 已通过 CI 构建、回归和隔离安装，终端交互尚待实测。需要 curl、tar，源码路径还需要 Git。默认从显式可信的 AutoKimi 提交构建，Kimi 版本由锁文件固定。指定 `--version` 时才尝试对应平台运行包，并在 `SHA256SUMS` 之外验证绑定该提交的 GitHub 构建证明。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。

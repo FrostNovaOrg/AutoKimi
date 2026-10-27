@@ -37,7 +37,7 @@ Linux x64 CI has passed build, regression and isolated installation checks; see 
 The installer supports macOS/Linux on ARM64 and x64. macOS ARM64 has been tested interactively; Linux x64 has passed CI checks. Run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a867a8b555fac880f13e37dda37c11/install.sh | sh -s -- --revision fa6df64ae9a867a8b555fac880f13e37dda37c11
 ```
 
 The command pins both the installer and AutoKimi source commit, then builds the pinned Kimi baseline. It does not execute mutable main. Runtime packages requested with `--version` require GitHub provenance bound to the repository, workflow and commit. Local packages require an independently trusted `--sha256`. It requires curl and tar; source builds also require Git and download the exact pnpm version. A first build may use several GB of disk space. If Node.js ≥24.15.0 is missing, the script installs Node in AutoKimi's own directory. It prints the launch command and PATH instructions when finished. Linux shell sandboxing requires `/usr/bin/bwrap`, `/usr/bin/socat` and `/usr/bin/rg` (`bubblewrap socat ripgrep` on Debian/Ubuntu). macOS uses system Seatbelt.
@@ -47,7 +47,7 @@ With an existing checkout, run `sh install.sh --source`. You can also build and 
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
 cd AutoKimi
-git checkout --detach TRUSTED_COMMIT
+git checkout --detach fa6df64ae9a867a8b555fac880f13e37dda37c11
 npm run build
 npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi

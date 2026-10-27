@@ -7,7 +7,7 @@
 Run in a terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/fa6df64ae9a867a8b555fac880f13e37dda37c11/install.sh | sh -s -- --revision fa6df64ae9a867a8b555fac880f13e37dda37c11
 ```
 
 The script supports macOS/Linux on ARM64 and x64; macOS ARM64 has been tested. Linux x64 has passed CI build, regression and isolated installation checks; terminal interaction still needs manual testing. It requires curl and tar, plus Git for source builds. By default it builds an explicitly trusted AutoKimi commit with Kimi pinned by the lock file. Only `--version` requests a matching runtime package, verified against GitHub provenance bound to that commit in addition to `SHA256SUMS`. Download or checksum failures stop installation. Source builds download the exact pnpm version, without requiring a global installation.
