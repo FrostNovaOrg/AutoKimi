@@ -42,6 +42,16 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: sudo apt-get update && sudo apt-get install --yes bubblewrap socat ripgrep
+      - name: Permit the sandbox helper's isolated user namespaces
+        run: |
+          sudo tee /etc/apparmor.d/autokimi-ci-seccomp >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile autokimi-ci-seccomp /{tmp,home/runner/work}/**/apply-seccomp flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/autokimi-ci-seccomp
       - name: Verify Linux sandbox backend
         run: /usr/bin/bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --unshare-net -- /usr/bin/true
       - run: npm install --global pnpm@10.33.0

@@ -28,6 +28,17 @@ jobs:
           node-version-file: .nvmrc
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes bubblewrap socat ripgrep
+      - name: Permit the sandbox helper's isolated user namespaces
+        if: runner.os == 'Linux'
+        run: |
+          sudo tee /etc/apparmor.d/autokimi-ci-seccomp >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile autokimi-ci-seccomp /{tmp,home/runner/work}/**/apply-seccomp flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/autokimi-ci-seccomp
       - name: Verify Linux sandbox backend
         if: runner.os == 'Linux'
         run: /usr/bin/bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --unshare-net -- /usr/bin/true
