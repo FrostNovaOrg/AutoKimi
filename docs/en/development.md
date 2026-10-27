@@ -58,7 +58,7 @@ Updating official `kimi` does not update AutoKimi. Maintainers explicitly select
 
 See [updates](installation.md#updates) for candidate updates, source fetching, receipts and failure states.
 
-The source budget is 832 KiB, covering frozen-dependency patches, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
+The source budget is 896 KiB, covering frozen-dependency patches, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
 
 ## Repository release audit
 
@@ -69,3 +69,5 @@ Before release, verify remote refs with a fresh mirror clone and review GitHub d
 The npm `private: true` flag prevents accidental npm publication and does not affect GitHub visibility. See [maintainer Release packages](installation.md#maintainer-release-packages). State untested platforms accurately. Verify actual CI runs separately; local results cannot substitute for them.
 
 `test:headless` uses the actual installed package and a local mock model service to verify idempotency, cursors, reviewed file writes, denials, cumulative-budget continuation, cancellation and child cleanup, blocked input and worker crash recovery. It makes no paid model calls. Manual full CI includes this smoke test.
+
+Security regressions also cover the local filesystem sink, protected-path discovery and evaluation runner. `test:headless` uses an always-allow synthetic reviewer to test actual shell configuration writes, split-name links, nested interpreters and network restrictions. Linux integration CI installs bubblewrap, socat and ripgrep. Maintainers can manually run `release.yml` to generate archives with GitHub provenance; it does not publish a Release, and installers must pin the actual build commit.

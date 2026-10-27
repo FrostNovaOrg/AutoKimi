@@ -117,3 +117,21 @@ model = "reviewer"
 AutoKimi 开放交互 TUI、显式 `exec` 无头任务及已列出的管理命令，新上游入口默认拒绝。根命令 `-p/--prompt`、ACP/Web 和无终端启动 TUI 仍报错；自动化请使用 [无头任务接口](headless.md)。无头任务强制 Always Ask 与审核，不能使用 TUI 一次授权；预算由调用者设置并跨续跑累计。
 
 旧 MCP OAuth 凭据若没有 `issuer`，AutoKimi 会要求重新登录，不复用其中的令牌或客户端密钥；原始存储保留供原生 `kimi` 使用。新登录会保存授权服务器绑定。
+
+## Shell 系统沙箱（0.3.1）
+
+Bash 默认通过固定版本的 `@anthropic-ai/sandbox-runtime` 执行。macOS 使用 Seatbelt，Linux 使用 `/usr/bin/bwrap`、`/usr/bin/socat` 和 `/usr/bin/rg`。沙箱不可用时拒绝该命令，不回退到普通 shell；外层包装器直接启动受限 argv，shell 启动文件和子进程也处于边界内。
+
+```toml
+[permission.review]
+shell_sandbox = true
+shell_allowed_domains = ["registry.npmjs.org"]
+```
+
+默认仅工作目录和系统临时目录可写，Kimi home、已发现的指令文件及其真实目标保持受保护；已有受保护硬链接会阻止 shell 启动。网络域名默认空列表，拒绝 Unix socket 和本地绑定；无头入口还须有 `--allow-network` 才能使用配置中的域名。provider 的模型连接不在子进程沙箱中。常见凭据环境变量及解释器注入变量不会传给子进程。
+
+这一默认会阻止工作区外写入、未授权网络、Docker socket、部分全局缓存及外部 Git 工作树元数据写入；请使用项目内缓存，或由父编排器完成这些操作。已在外部容器中隔离的可信 TUI 用户可以显式设置 `shell_sandbox = false` 恢复旧的模型审核 shell 行为；这会失去系统边界，路径文本检查仅是辅助。无头任务始终要求 shell 沙箱，不能利用该设置降级。
+
+权限规则中的命令参数仍是原始字符串 glob；`Bash(rm *)` 不涵盖所有绝对路径或嵌套解释器变体。需要完全禁用一类工具时使用工具级规则。系统沙箱只覆盖 shell，原生默认允许的读取、Web 和 MCP 行为仍须按各自策略评估。
+
+AutoKimi 的版本特例还要求 `static-v1` 回执，输出的是静态安装身份；它不是安装目录的实时完整性证明。原生 Kimi 的特例仅验证命令文件摘要，不认证其全部依赖，实际执行仍经过 shell 沙箱和正常审核。

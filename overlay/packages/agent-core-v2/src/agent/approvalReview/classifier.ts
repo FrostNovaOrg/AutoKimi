@@ -55,10 +55,7 @@ export function parseReviewGrant(text: string): ReviewGrant | undefined {
   const prefix = `${REVIEW_GRANT_MARKER}\n`;
   if (!text.startsWith(prefix)) return undefined;
   const separator = text.indexOf('\n', prefix.length);
-  if (
-    separator < 0 ||
-    text.slice(separator + 1) !== REVIEW_GRANT_INSTRUCTION
-  )
+  if (separator < 0 || text.slice(separator + 1) !== REVIEW_GRANT_INSTRUCTION)
     return undefined;
   try {
     return ReviewGrantSchema.parse(
@@ -234,8 +231,7 @@ function humanQuestionAnswer(
   const items = payload['questions'].flatMap((item) => {
     const value = objectRecord(item);
     const question = value?.['question'];
-    if (typeof question !== 'string' || question.trim().length === 0)
-      return [];
+    if (typeof question !== 'string' || question.trim().length === 0) return [];
     const options = value?.['options'];
     const labels = Array.isArray(options)
       ? options.flatMap((option) => {
@@ -510,6 +506,14 @@ export function reviewEvidence(input: {
   cwd: string;
   agentId: string;
   maxChars: number;
+  fileAccesses?: readonly {
+    path: string;
+    operation: string;
+    realPath?: string;
+    links?: number;
+    device?: number;
+    inode?: number;
+  }[];
   oneTimeApproval?: { toolCallId: string; fingerprint: string };
   humanApprovals?: readonly VerifiedHumanApproval[];
   questionAnswers?: readonly HumanQuestionAnswer[];
@@ -534,6 +538,7 @@ export function reviewEvidence(input: {
   const questionAnswers = input.questionAnswers ?? [];
   const recentAnswers = questionAnswers.slice(-8);
   const base = {
+    resolved_file_accesses: input.fileAccesses,
     genuine_user_requests: recent,
     older_user_requests_omitted: input.userRequests.length - recent.length,
     verified_one_time_user_approval:
@@ -550,7 +555,9 @@ export function reviewEvidence(input: {
     older_human_question_answers_omitted:
       questionAnswers.length - recentAnswers.length,
   };
-  if (JSON.stringify({ ...base, pending_action: pending }).length > input.maxChars)
+  if (
+    JSON.stringify({ ...base, pending_action: pending }).length > input.maxChars
+  )
     throw new Error(
       'The pending action or human request exceeds the review evidence budget',
     );
@@ -591,9 +598,7 @@ export function reviewEvidence(input: {
         verificationCount--
       ) {
         const selectedVerification =
-          verificationCount === 0
-            ? []
-            : verification.slice(-verificationCount);
+          verificationCount === 0 ? [] : verification.slice(-verificationCount);
         const evidence = {
           ...base,
           ...(includeActions
@@ -647,10 +652,7 @@ export async function classifyApproval(
       try {
         return parseReviewDecision(await run(stage));
       } catch (error) {
-        if (
-          failedAttempt >= maxAttempts ||
-          retry?.shouldRetry(error) !== true
-        )
+        if (failedAttempt >= maxAttempts || retry?.shouldRetry(error) !== true)
           throw error;
         await retry.onRetry?.(error, failedAttempt, stage);
       }
@@ -658,9 +660,7 @@ export async function classifyApproval(
   };
   const first = await runStage(twoStage ? 'fast' : 'full');
   const final =
-    twoStage && first.decision !== 'allow'
-      ? await runStage('full')
-      : first;
+    twoStage && first.decision !== 'allow' ? await runStage('full') : first;
   return {
     ...final,
     decision: final.decision === 'allow' ? 'allow' : 'deny',

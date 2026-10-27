@@ -117,3 +117,21 @@ Session `approval-review.jsonl` records timestamps, tool identifiers, model, ver
 AutoKimi permits the interactive TUI, explicit `exec` jobs and listed administrative commands. New upstream entries are denied by default. Root `-p/--prompt`, ACP/Web and non-terminal TUI startup still fail. Use the [headless task interface](headless.md) for automation. Headless tasks force Always Ask and review, disable TUI one-time grants and inherit caller budgets across continuation.
 
 For old MCP OAuth credentials without an `issuer`, AutoKimi requires login again instead of reusing their tokens or client secrets. Original storage remains available to native `kimi`; new logins retain authorization-server binding.
+
+## Shell OS sandbox (0.3.1)
+
+Bash uses the pinned `@anthropic-ai/sandbox-runtime` by default: Seatbelt on macOS and `/usr/bin/bwrap`, `/usr/bin/socat` and `/usr/bin/rg` on Linux. Unavailable sandboxes refuse the command without falling back. The wrapper starts restricted argv directly, keeping shell startup files and descendants inside the boundary.
+
+```toml
+[permission.review]
+shell_sandbox = true
+shell_allowed_domains = ["registry.npmjs.org"]
+```
+
+Only the workspace and system temporary directory are writable by default. Kimi home, discovered instruction files and their real targets stay protected; preexisting protected hardlinks prevent shell startup. The domain list starts empty; Unix sockets and local binding are denied. Headless tasks additionally need `--allow-network` before configured domains can be used. Provider model connections run outside the child sandbox. Common credential environment variables and interpreter injection variables are scrubbed.
+
+This default blocks writes outside the workspace, unapproved networking, Docker sockets, some global caches and external Git worktree metadata writes. Use project-local caches or let the parent orchestrator perform those operations. Trusted TUI users already isolated in an external container can explicitly set `shell_sandbox = false` to restore legacy model-reviewed shell execution. That removes the OS boundary; path-text checks remain only supplementary. Headless shell execution always requires the sandbox and cannot downgrade through this setting.
+
+Command specifiers in permission rules remain raw-string globs. `Bash(rm *)` does not cover every absolute-path or nested-interpreter variant. Use tool-level rules when disabling an entire tool. The OS sandbox covers shell only; native allowed reads, Web tools and MCP still require their own policies.
+
+The AutoKimi version exception also requires a `static-v1` receipt and prints static installation identity, not a live integrity proof for the installed directory. The native Kimi exception checks the command-file digest rather than authenticating every dependency; execution still passes shell sandboxing and normal review.

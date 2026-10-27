@@ -2,7 +2,7 @@
 
 [English](headless.md) | [简体中文](../headless.md)
 
-AutoKimi 0.3.0 adds an explicit `exec` entry for parent agents, orchestrators and scripts. Plain `autokimi` still opens the TUI; native `-p`, ACP and Web service entries remain disabled. Configure Kimi authentication, the main model and reviewer before calling it. Headless workers do not log in interactively or request human approval.
+AutoKimi 0.3.1 adds an explicit `exec` entry for parent agents, orchestrators and scripts. Plain `autokimi` still opens the TUI; native `-p`, ACP and Web service entries remain disabled. Configure Kimi authentication, the main model and reviewer before calling it. Headless workers do not log in interactively or request human approval.
 
 ## Submit, observe and stop
 
@@ -77,9 +77,9 @@ A lost worker becomes `interrupted/worker_lost`. Recovery uses native SDK histor
 
 Headless execution forces Always Ask and automatic review. An environment override disabling review fails before model execution. Switching to auto/yolo stops the run. Native deny rules remain effective; side-effect tools ordinarily allowed directly by native rules are sent through review. The limited read-only tool set retains a direct path, subject to budgets, file scope and native deny rules.
 
-`--cwd` grants the file-tool workspace, with real-path and symlink checks and protection for the Kimi home. `--read-only` permits a limited set of read, query and task-local state tools, disabling Bash, writes and MCP. WebSearch, FetchURL and MCP are disabled by default; `--allow-network` admits them to normal permission review. It does not control provider connections or prevent networking inside Bash.
+`--cwd` grants the file-tool workspace, with real-path and symlink checks and protection for the Kimi home. `--read-only` permits a limited set of read, query and task-local state tools, disabling Bash, writes and MCP. WebSearch, FetchURL and MCP are disabled by default; `--allow-network` admits them to normal permission review. It does not control provider connections. Bash networking additionally requires this flag and permission from the OS sandbox’s `shell_allowed_domains`.
 
-**This is not an operating system sandbox.** Bash receives cwd checks and model permission review. File-tool scope does not isolate the file, process or network effects of an approved shell. For strict isolation, run under a container or restricted account and control credentials and networking. Neither `--cwd` nor `--allow-network` is a system boundary.
+**Bash and descendants require the OS sandbox.** Writes outside the workspace and temporary directory are denied; discovered instructions, runtime configuration and their real targets remain protected. Missing sandboxes refuse the command. File tools and MCP are outside the shell sandbox, and the whole task process is not isolated as a multi-tenant service. The orchestrator still owns strict isolation; see [sandbox configuration](configuration.md#shell-os-sandbox-031).
 
 Headless execution does not consume TUI one-time grants or fabricate human approvals. `AskUserQuestion` produces `blocked_input`, leaving the parent session to supply input. The caller owns goals and scheduling: tasks cannot create autonomous goals, scheduled jobs or detached background delegation. Cancellation cleans up only background tasks created by the current run.
 

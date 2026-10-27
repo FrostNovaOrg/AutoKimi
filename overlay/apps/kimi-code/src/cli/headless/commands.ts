@@ -527,7 +527,8 @@ export function registerHeadlessCommands(
           permissions: {
             mode: 'manual',
             review_required: true,
-            os_sandbox: false,
+            os_sandbox: true,
+            sandbox_scope: 'Bash and descendant processes',
             network_tools_default: false,
           },
           statuses: [

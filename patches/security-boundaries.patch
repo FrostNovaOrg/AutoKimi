@@ -1,0 +1,102 @@
+diff --git a/apps/kimi-code/tsdown.config.ts b/apps/kimi-code/tsdown.config.ts
+index 858aeeb..19b305d 100644
+--- a/apps/kimi-code/tsdown.config.ts
++++ b/apps/kimi-code/tsdown.config.ts
+@@ -32,6 +32,7 @@ export default defineConfig({
+   },
+   deps: {
+     onlyBundle: false,
++    neverBundle: [/^@anthropic-ai\/sandbox-runtime/],
+   },
+   outputOptions: {
+     codeSplitting: false,
+diff --git a/packages/agent-core-v2/src/os/backends/node-local/hostFsService.ts b/packages/agent-core-v2/src/os/backends/node-local/hostFsService.ts
+index 38555da..65548b6 100644
+--- a/packages/agent-core-v2/src/os/backends/node-local/hostFsService.ts
++++ b/packages/agent-core-v2/src/os/backends/node-local/hostFsService.ts
+@@ -1,6 +1,6 @@
++import { reviewSafeWrite } from './reviewSafeWrite';
+ import { createReadStream } from 'node:fs';
+ import {
+-  appendFile,
+   lstat,
+   open,
+   readFile,
+@@ -9,7 +9,6 @@ import {
+   realpath as nodeRealpath,
+   rm,
+   stat as nodeStat,
+-  writeFile,
+ } from 'node:fs/promises';
+ import { LifecycleScope } from '#/app/scopes';
+ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+@@ -59,7 +58,7 @@ export class HostFileSystem implements IHostFileSystem {
+ 
+   async writeText(path: string, data: string): Promise<void> {
+     try {
+-      await writeFile(path, data, 'utf8');
++      await reviewSafeWrite(path, data);
+     } catch (error) {
+       throw toHostFsError(error, { path, op: 'write' });
+     }
+@@ -67,7 +66,7 @@ export class HostFileSystem implements IHostFileSystem {
+ 
+   async appendText(path: string, data: string): Promise<void> {
+     try {
+-      await appendFile(path, data, 'utf8');
++      await reviewSafeWrite(path, data, true);
+     } catch (error) {
+       throw toHostFsError(error, { path, op: 'append' });
+     }
+@@ -95,7 +94,7 @@ export class HostFileSystem implements IHostFileSystem {
+ 
+   async writeBytes(path: string, data: Uint8Array): Promise<void> {
+     try {
+-      await writeFile(path, data);
++      await reviewSafeWrite(path, data);
+     } catch (error) {
+       throw toHostFsError(error, { path, op: 'write' });
+     }
+diff --git a/packages/agent-core-v2/test/os/backends/node-local/hostFsService.test.ts b/packages/agent-core-v2/test/os/backends/node-local/hostFsService.test.ts
+index 7bc310a..0d68990 100644
+--- a/packages/agent-core-v2/test/os/backends/node-local/hostFsService.test.ts
++++ b/packages/agent-core-v2/test/os/backends/node-local/hostFsService.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
++import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import { join } from 'pathe';
+ 
+@@ -73,3 +73,20 @@ describe('HostFileSystem streamed UTF-8 lines', () => {
+     await expect(read()).rejects.toThrow();
+   });
+ });
++
++describe('safe file replacement', () => {
++  it('rejects hardlinked text, binary and append targets without altering their inode', async () => {
++    const protectedFile = join(dir, 'AGENTS.md'); const alias = join(dir, 'note.txt');
++    await writeFile(protectedFile, 'original'); await link(protectedFile, alias);
++    for (const operation of [() => fs.writeText(alias, 'changed'), () => fs.writeBytes(alias, Buffer.from('changed')), () => fs.appendText(alias, 'changed')]) {
++      await expect(operation()).rejects.toThrow('hard-linked');
++      expect(await readFile(protectedFile, 'utf8')).toBe('original');
++    }
++  });
++  it('writes and appends ordinary files, following an ordinary file symlink safely', async () => {
++    const target = join(dir, 'note.txt'); const alias = join(dir, 'note-link');
++    await fs.writeText(target, 'first'); await symlink(target, alias);
++    await fs.appendText(alias, ' second'); expect(await readFile(target, 'utf8')).toBe('first second');
++    await fs.writeBytes(alias, Buffer.from('final')); expect(await readFile(target, 'utf8')).toBe('final');
++  });
++});
+diff --git a/packages/node-sdk/tsdown.config.ts b/packages/node-sdk/tsdown.config.ts
+index e94bce7..64c3e18 100644
+--- a/packages/node-sdk/tsdown.config.ts
++++ b/packages/node-sdk/tsdown.config.ts
+@@ -28,6 +28,6 @@ export default defineConfig({
+   },
+   deps: {
+     alwaysBundle: [/^@moonshot-ai\//],
+-    neverBundle: [],
++    neverBundle: [/^@anthropic-ai\/sandbox-runtime/],
+   },
+ });

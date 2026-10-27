@@ -3,6 +3,7 @@ import {
   appendFileSync,
   chmodSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -47,6 +48,21 @@ afterEach(() => {
 });
 
 describe('durable run protocol', () => {
+  it('refuses a hardlinked event journal without changing the other file', () => {
+    const { home, store, request } = fixture();
+    const state = store.create(request);
+    const target = join(home, 'unrelated.json');
+    atomicJson(target, { untouched: true });
+    rmSync(store.path('events.jsonl'));
+    linkSync(target, store.path('events.jsonl'));
+    expect(() => store.event(state, 'run.usage', {})).toThrow(
+      'private regular',
+    );
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({
+      untouched: true,
+    });
+  });
+
   it('canonicalizes idempotency fingerprints independently of option ordering', () => {
     expect(digest({ cwd: 'workspace', limits: { steps: 2, tokens: 9 } })).toBe(
       digest({ limits: { tokens: 9, steps: 2 }, cwd: 'workspace' }),

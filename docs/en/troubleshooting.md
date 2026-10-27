@@ -63,3 +63,7 @@ The preparer protects edits in generated source. Copy needed changes back to ove
 ## Headless caller exits before the task is complete
 
 Inspect `autokimi runs status <run-id> --json`; query success does not establish completion. Check `permission_denials` for `completed_with_denials`, supply explicit input before resuming `blocked_input`, and inspect budgets or cancellation for `stopped`. Do not route around denials or reset counters. For `worker_lost`, inspect unfinished effects before following [recovery](headless.md). `submission_busy`, `run_busy` and `session_busy` are lock conflicts: back off with the same idempotency key, without deleting active locks. If an installation lacks `exec`, confirm its version is at least 0.3.0.
+
+## Shell sandbox unavailable / shell was not started
+
+On Linux, check `/usr/bin/bwrap`, `/usr/bin/socat`, `/usr/bin/rg` and user-namespace support. Container or host restrictions do not trigger a downgrade. On macOS, check system `sandbox-exec`. Inspect protected hardlinks or unresolved links and have a trusted user resolve aliases. Allow only required `shell_allowed_domains`; headless tasks also need `--allow-network`. External caches and linked-worktree shared Git metadata may be denied; use project caches or the parent orchestrator. See [configuration](configuration.md#shell-os-sandbox-031) for changed defaults and the trusted-TUI compatibility setting.

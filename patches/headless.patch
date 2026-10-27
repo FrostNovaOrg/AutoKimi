@@ -1,3 +1,15 @@
+diff --git a/apps/kimi-code/package.json b/apps/kimi-code/package.json
+index ca70e89..670771a 100644
+--- a/apps/kimi-code/package.json
++++ b/apps/kimi-code/package.json
+@@ -116,6 +116,7 @@
+     "node": ">=22.19.0"
+   },
+   "dependencies": {
++    "@anthropic-ai/sandbox-runtime": "0.0.81",
+     "chokidar": "^4.0.3",
+     "qrcode": "^1.5.4",
+     "ws": "^8.18.0"
 diff --git a/packages/agent-core-v2/src/agent/loop/loopService.ts b/packages/agent-core-v2/src/agent/loop/loopService.ts
 index 700fc29..4457556 100644
 --- a/packages/agent-core-v2/src/agent/loop/loopService.ts
@@ -147,19 +159,21 @@ index 764cb2f..f130c08 100644
        this.dupTypeTurnId = options.turnId;
        this.toolCallDupTypes.clear();
 diff --git a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
-index 4109001..c69781e 100644
+index 4109001..b21e77b 100644
 --- a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
 +++ b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
++import { IAutoKimiSandbox } from '#/app/autokimiSandbox/sandbox';
 +import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
  import { IAgentTaskService } from '#/agent/task/task';
  import { resolveAgentTaskConfig } from '#/agent/task/configSection';
  import { IConfigService } from '#/app/config/config';
-@@ -105,9 +106,11 @@ export class BashTool implements IBashTool {
+@@ -105,9 +107,12 @@ export class BashTool implements IBashTool {
      @IAgentTaskService private readonly tasks: IAgentTaskService,
      @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
      @IConfigService private readonly config: IConfigService,
 +    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
++    @IAutoKimiSandbox private readonly sandbox?: IAutoKimiSandbox,
    ) {}
  
    private allowBackground(): boolean {
@@ -167,7 +181,7 @@ index 4109001..c69781e 100644
      return (
        this.toolPolicy.isToolActive('TaskList') &&
        this.toolPolicy.isToolActive('TaskOutput') &&
-@@ -116,6 +119,7 @@ export class BashTool implements IBashTool {
+@@ -116,6 +121,7 @@ export class BashTool implements IBashTool {
    }
  
    private autoBackgroundOnTimeout(): boolean {
@@ -175,6 +189,47 @@ index 4109001..c69781e 100644
      return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
    }
  
+@@ -154,11 +160,12 @@ export class BashTool implements IBashTool {
+     };
+   }
+ 
+-  private spawn(
++  private async spawn(
+     processService: IHostProcessService,
+     env: HostEnvironmentInfo,
+     effectiveCwd: string,
+     command: string,
++    signal: AbortSignal,
+   ): Promise<IHostProcess> {
+     const shellCwd = getShellPathBridge(env).toShellPath(effectiveCwd);
+     const shellCommand = `cd ${shellQuote(shellCwd)} && ${command}`;
+@@ -169,7 +176,14 @@ export class BashTool implements IBashTool {
+       SHELL: env.shellPath,
+     };
+ 
+-    return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
++    const wrapped = await this.sandbox?.wrap(shellCommand, effectiveCwd, env.shellPath, signal, this.headless?.active ? this.headless.allowNetwork : true, this.headless?.active === true);
++    if (wrapped === undefined) return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
++    try {
++      signal.throwIfAborted();
++      const process = await processService.spawn(wrapped.argv[0]!, wrapped.argv.slice(1), { cwd: effectiveCwd, env: { ...wrapped.env, ...noninteractiveEnv } });
++      void process.wait().then(wrapped.cleanup, wrapped.cleanup);
++      return process;
++    } catch (error) { wrapped.cleanup(); throw error; }
+   }
+ 
+   private async execution(
+@@ -199,8 +213,9 @@ export class BashTool implements IBashTool {
+     const builder = new ToolOutputAccumulator();
+     let proc: IHostProcess;
+     try {
+-      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command));
++      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command, signal));
+     } catch (error) {
++      if (this.sandbox !== undefined) this.headless?.reportDenial(toolCallId, 'Bash', 'Shell sandbox refused execution: ' + String(error).slice(0, 180));
+       lease.dispose();
+       return {
+         isError: true,
 diff --git a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts b/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
 index ac132ba..6a273fa 100644
 --- a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
@@ -252,15 +307,16 @@ index 8285720..0b3efdf 100644
          reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
          reg.defineInstance(
 diff --git a/packages/node-sdk/src/sdk-rpc-client-v2.ts b/packages/node-sdk/src/sdk-rpc-client-v2.ts
-index 4051b61..b724d71 100644
+index 4051b61..0ea6edf 100644
 --- a/packages/node-sdk/src/sdk-rpc-client-v2.ts
 +++ b/packages/node-sdk/src/sdk-rpc-client-v2.ts
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
++import { waitForShellSandboxShutdown } from '@moonshot-ai/agent-core-v2/app/autokimiSandbox/sandbox';
 +import { AutoKimiHeadlessControl, IAutoKimiHeadless } from '@moonshot-ai/agent-core-v2/app/autokimiHeadless/control';
  /**
   * v2 wiring MVP — an `SDKRpcClientBase` backed by the agent-core-v2 engine
   * (DI × Scope) instead of the v1 `KimiCore` RPC pair. The engine is
-@@ -353,6 +354,7 @@ import {
+@@ -353,6 +355,7 @@ import {
  import { SessionEventWiring } from '#/v2/session-wiring';
  
  export interface SDKRpcClientV2Options {
@@ -268,7 +324,7 @@ index 4051b61..b724d71 100644
    readonly homeDir?: string;
    readonly configPath?: string;
    readonly identity?: KimiHostIdentity;
-@@ -454,6 +456,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+@@ -454,6 +457,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
      });
  
      const identity = assertKimiHostIdentity(this.identity);
@@ -276,7 +332,7 @@ index 4051b61..b724d71 100644
      const { app } = bootstrap(
        {
          homeDir: this.homeDir,
-@@ -470,7 +473,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+@@ -470,7 +474,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
            uiCapabilities: options.uiCapabilities,
          },
        },
@@ -285,6 +341,14 @@ index 4051b61..b724d71 100644
      );
      this.app = app;
      this.klient = createKlient({ scope: app });
+@@ -535,6 +539,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+     await this.app.accessor.get(IMcpOAuthService).shutdown();
+     const appendLogStore = this.app.accessor.get(IAppendLogStore);
+     this.app.dispose();
++    await waitForShellSandboxShutdown();
+     await appendLogStore.drainRetirements();
+     await drainSessionIndexMirror();
+     await drainQueryStoreDisposals();
 diff --git a/packages/node-sdk/src/types.ts b/packages/node-sdk/src/types.ts
 index fe3772e..4c374eb 100644
 --- a/packages/node-sdk/src/types.ts

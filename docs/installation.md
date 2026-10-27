@@ -7,10 +7,10 @@
 在终端执行：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
 ```
 
-安装脚本支持 macOS/Linux 的 ARM64 和 x64；macOS ARM64 已实测，Linux x64 已通过 CI 构建、回归和隔离安装，终端交互尚待实测。需要 curl、tar，源码路径还需要 Git。优先使用 GitHub Release 中与 Node 平台和架构匹配的运行包，核对 `SHA256SUMS`，再调用随包安装器；无发布包时自动从 `main` 构建，Kimi 版本仍由项目锁文件固定。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
+安装脚本支持 macOS/Linux 的 ARM64 和 x64；macOS ARM64 已实测，Linux x64 已通过 CI 构建、回归和隔离安装，终端交互尚待实测。需要 curl、tar，源码路径还需要 Git。默认从显式可信的 AutoKimi 提交构建，Kimi 版本由锁文件固定。指定 `--version` 时才尝试对应平台运行包，并在 `SHA256SUMS` 之外验证绑定该提交的 GitHub 构建证明。下载或摘要校验失败会停止。源码构建下载精确版本的 pnpm，无须全局安装它。
 
 缺少 Node.js ≥24.15.0 时，脚本校验官方 Node 包摘要并安装到 `<home>/autokimi/tools/`，不修改系统 Node。默认 HOME 使用 `AUTOKIMI_HOME`、`KIMI_CODE_HOME`、`~/.kimi-code`；`--home` 优先。脚本不改 shell 配置，完成后打印启动路径和需要的 PATH 命令。不要移动安装器选择的 Node 路径。
 
@@ -18,12 +18,12 @@ curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.
 
 ```sh
 sh install.sh --source
-sh install.sh --version v0.3.0
-sh install.sh --package /path/to/autokimi-v0.3.0-darwin-arm64.tar.gz --home /path/to/kimi-home
+sh install.sh --version v0.3.1 --revision TRUSTED_COMMIT
+sh install.sh --package /path/to/autokimi-v0.3.1-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
 sh install.sh --timeout-ms 90000
 ```
 
-`--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建该标签。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会启用审核并切回 Always Ask；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
+`--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建 `--revision` 指定的提交并核对版本。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会启用审核并切回 Always Ask；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
 
 ## 构建并安装
 
@@ -117,3 +117,13 @@ npm run follow:upstream -- --version 2.3.3
 确认 `~/.kimi-code/bin/autokimi` 含 `# autokimi local launcher` 标记后，可删除该脚本及 `~/.kimi-code/autokimi/`。使用自定义 `--home` 时替换为该目录。保留官方 `kimi`、登录和会话。
 
 共享配置中的审核开关可在卸载前用 `/auto-review off` 关闭；默认权限模式按个人需要调整。不要删除整个 `~/.kimi-code`。
+
+## 安装信任链（0.3.1）
+
+推荐命令固定安装脚本的完整提交，并将同一提交传给 `--revision`。脚本只下载该提交的 bootstrap，先校验预置 SHA-256，再执行；独立 Node 24.15.0 的四个平台摘要也预置在脚本中，不再把同源动态摘要当成信任根。最初选择的脚本与提交仍须来自可信来源，固定摘要不证明代码无漏洞。
+
+默认安装从该确切 AutoKimi 提交构建，不跟随 main 或 latest。可信本地 Git 检出运行 `sh install.sh --source` 时使用当前 HEAD；未提交开发改动需按开发流程自行构建。`--version` 指定运行包时，还须提供与包构建相同的 `--revision`。使用 GitHub CLI 验证 Sigstore 构建证明，绑定仓库、`.github/workflows/release.yml`、源码提交、签名工作流提交及 GitHub 托管 runner；未签名、来源不符或验证失败不会解包执行。缺少 gh 时使用显式 `--source`。
+
+本地包可以改用独立可信渠道取得的 `--sha256`；从同一下载位置顺手取得的 SHA256SUMS 不构成独立信任。`SHA256SUMS` 仍作传输完整性检查，不能单独授权代码执行。手动发布工作流只生成已验证、已证明的 Actions 运行包，不会自动创建 Release；本次修复未发布新二进制资产。
+
+Linux 运行 Bash 还需要 `/usr/bin/bwrap`、`/usr/bin/socat`、`/usr/bin/rg` 及可用的用户命名空间/seccomp。缺少这些能力时仍可使用文件工具，shell 会拒绝启动。配置与外部容器下的兼容模式见[配置说明](configuration.md#shell-系统沙箱031)。

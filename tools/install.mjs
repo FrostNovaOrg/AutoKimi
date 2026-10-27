@@ -556,8 +556,8 @@ export async function install(options = {}) {
       const identityRoute =
         manifest.autoKimi === undefined
           ? ''
-          : `if [ "$1" = "--version" ] || [ "$1" = "-V" ] || [ "$1" = "version" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} --identity ${quote(join(distribution, 'autokimi-package.json'))} "$@"\nfi\n`;
-      const script = `#!/bin/sh\n${marker}\nexport KIMI_CODE_NO_AUTO_UPDATE=1\nexport KIMI_CODE_HOME=${quote(home)}\nexport AUTOKIMI_HOME=${quote(home)}\n${identityRoute}if [ "$1" = "update" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} "$@"\nfi\nif [ "$1" = "upgrade" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} --upgrade "$@"\nfi\nexec ${quote(nodeCommand)} ${quote(join(distribution, 'dist', 'main.mjs'))} "$@"\n`;
+          : `if [ "$1" = "--version" ] || [ "$1" = "-V" ] || [ "$1" = "version" ]; then\n  printf '%s\\n' ${quote(`AutoKimi ${manifest.autoKimi.version} (${manifest.autoKimi.revision ?? 'source archive'}${manifest.autoKimi.dirty ? ', modified' : ''})\nSource SHA-256: ${manifest.autoKimi.sourceSha256}\nKimi ${manifest.version}`)}\n  exit 0\nfi\n`;
+      const script = `#!/bin/sh\n${marker}\nexport KIMI_CODE_NO_AUTO_UPDATE=1\nexport KIMI_CODE_HOME=${quote(home)}\nexport AUTOKIMI_HOME=${quote(home)}\nexport PATH=${quote(dirname(nodeCommand))}:"$PATH"\n${identityRoute}if [ "$1" = "update" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} "$@"\nfi\nif [ "$1" = "upgrade" ]; then\n  shift\n  exec ${quote(nodeCommand)} ${quote(updateTool)} --upgrade "$@"\nfi\nexec ${quote(nodeCommand)} ${quote(join(distribution, 'dist', 'main.mjs'))} "$@"\n`;
       await mkdir(bin, { recursive: true });
       await atomicWrite(target, script, 0o755);
       launcherChanged = true;
@@ -571,6 +571,9 @@ export async function install(options = {}) {
         upstreamCommit: manifest.upstreamCommit,
         mainSha256: manifest.mainSha256,
         launcherSha256: sha256(script),
+        versionStrategy:
+          manifest.autoKimi === undefined ? undefined : 'static-v1',
+        packageSha256: manifest.packageSha256,
         officialCommandUnchanged: true,
         officialSha256: officialBefore,
         compiledDuringInstall: false,

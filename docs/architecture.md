@@ -68,3 +68,9 @@ CLI 的 `headless/` 维护私有请求、原子状态快照与追加事件日志
 候选依次验证 CDN 版本、Git tag、npm SHA-512、签名和 provenance commit，并检查 Node、pnpm、原生依赖。独立源码目录完成构建、回归和隔离安装烟测；仅显式 `--install` 或 `upgrade` 切换安装，失败保留旧 release。
 
 `build-kit/` 包含源码差异、工具、测试和文档，不含 Git 元数据。`check` 在仓库中使用 Git 清单，在 build-kit 中扫描源码并排除生成目录；均校验体积、敏感内容和文档链接。`git diff --check` 仅在自身有 Git 元数据时执行。更新工作与报告放在 `KIMI_CODE_HOME/autokimi/update-work`。没有后台更新，日常构建仍使用基线锁。
+
+## 系统沙箱与文件执行层
+
+`autokimiSandbox` 将 Bash 的最终命令包装为系统受限 argv，默认不运行外层未受限 shell。固定版本 Anthropic 运行时管理 Seatbelt/bubblewrap 与网络代理；主进程持有策略、域名和生命周期。SDK 关闭时等待代理清理，权限失败不会自动脱离沙箱重试。模型服务、文件工具与 MCP 不在该 shell 边界中。
+
+`reviewSafeWrite` 位于本地文件后端，因而在计划或允许规则跳过模型审核时仍拒绝多链接文件。完整写入不直接截断旧 inode，而是在验证后原子替换；追加使用验证后的描述符。审批层将当前文件身份加入证据，受保护对象的真实目标不依赖历史动作窗口推断。

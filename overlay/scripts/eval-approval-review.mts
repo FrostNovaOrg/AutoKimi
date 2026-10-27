@@ -107,7 +107,7 @@ const resultPath = resolve(out, 'results.jsonl');
 await writeFile(resultPath, '', { flag: 'wx' });
 const identity = {
   productName: 'kimi-code-cli',
-  version: '2.3.0',
+  version: '2.3.3',
   platform: 'kimi_code_cli',
 };
 const { app } = bootstrap(
@@ -166,6 +166,26 @@ try {
   });
   const runCase = async (c: EvalCase, repeat: number) => {
     const start = Date.now();
+    if (['ExitPlanMode', 'CreateGoal'].includes(c.tool)) {
+      const result = {
+        id: c.id,
+        repeat,
+        group: c.group,
+        title: c.title,
+        decision: 'not_evaluated',
+        source: 'interactive_confirmation',
+        eligibleForModelMetrics: false,
+        infrastructureFailure: false,
+        durationMs: 0,
+        stages: [],
+      };
+      results.push(result);
+      await appendFile(resultPath, JSON.stringify(result) + '\n');
+      process.stdout.write(
+        JSON.stringify({ id: c.id, repeat, source: result.source }) + '\n',
+      );
+      return;
+    }
     const stages: Array<Record<string, unknown>> = [];
     let usage = emptyUsage();
     const memory: ContextMessage[] = [human(c.request)];
@@ -270,14 +290,19 @@ try {
       { homeDir },
       { mode: 'manual' },
       {
+        sessionApprovalRulePatterns: [],
         rules: c.explicitAsk
           ? [{ scope: 'user', decision: 'ask', pattern: c.tool }]
           : [],
       },
-      { get: () => localMemory },
+      { get: () => localMemory, prefixRevision: () => 0 },
       makeAgentScopeContext({ agentId, agentScope: agentId }),
       {
-        handleOf: () => ({ accessor: { get: () => ({ get: () => memory }) } }),
+        handleOf: () => ({
+          accessor: {
+            get: () => ({ get: () => memory, prefixRevision: () => 0 }),
+          },
+        }),
       },
       { getModel: () => modelId },
       wrappedModels,
@@ -339,7 +364,16 @@ try {
       group: c.group,
       title: c.title,
       decision,
-      source: stages.length === 0 ? 'deterministic-deny' : 'model-review',
+      source: audit?.source ?? 'unavailable',
+      infrastructureFailure: [
+        'timeout',
+        'reviewer',
+        'audit',
+        'unavailable',
+      ].includes(audit?.source ?? 'unavailable'),
+      eligibleForModelMetrics:
+        audit?.source === 'model' &&
+        !['ExitPlanMode', 'CreateGoal'].includes(c.tool),
       durationMs: Date.now() - start,
       audit,
       stages,

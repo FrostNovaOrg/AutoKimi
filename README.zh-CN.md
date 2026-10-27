@@ -14,17 +14,18 @@
 
 ## 能力与边界
 
+- 默认隔离 Bash 的文件写入及网络访问；无沙箱时拒绝执行，不自动降级。
 - 在原生终端交互中审核待审批工具，支持两阶段判断、服务故障退避和审计。
 - 对符合条件的模型拒绝提供一次精确重试；完整详情和默认取消的二次确认防止误授权。
 - 提供面向代理编排的无头任务：JSONL 事件、幂等提交、累计预算、取消和原生上下文续跑。
 - 可单独选择审核模型、provider 和接口地址，默认跟随当前代理模型。
 - 固定上游提交、冻结依赖与补丁重建，独立安装、更新及保留旧运行包。
 
-TUI 中原有 allow/deny 规则先执行，审核器接收待审批操作。无头 `exec` 进一步让副作用工具经过审核，同时保留原生拒绝及有限只读工具集。模型可能误判，两个入口均不提供操作系统隔离。ACP 和 Web 服务请使用原生 Kimi。
+TUI 中原有 allow/deny 规则先执行，审核器接收待审批操作。无头 `exec` 进一步让副作用工具经过审核，同时保留原生拒绝及有限只读工具集。模型可能误判。0.3.1 默认将 Bash 及子进程放入 Anthropic 的系统沙箱，文件工具和 MCP 仍使用各自权限边界。ACP 和 Web 服务请使用原生 Kimi。
 
 | 项目                 | 当前状态                                     |
 | -------------------- | -------------------------------------------- |
-| AutoKimi / Kimi Code | 0.3.0 / 2.3.3                                |
+| AutoKimi / Kimi Code | 0.3.1 / 2.3.3                                |
 | 构建依赖             | Node.js ≥24.15.0；pnpm 10.33.0               |
 | 已实测               | macOS ARM64：构建、TUI 回归及两种安装路径    |
 | 待验证               | Linux 终端交互及其他平台组合；Windows 不支持 |
@@ -36,16 +37,17 @@ Linux x64 CI 已通过构建、回归和隔离安装检查，详见[验证记录
 已在 macOS ARM64 上验证；安装器支持 macOS/Linux 的 ARM64、x64，Linux x64 已通过 CI 检查。一键安装：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
 ```
 
-安装脚本优先下载当前平台的 Release 包并核对 SHA-256；没有发布包时自动从固定的 Kimi 基线构建。需要 curl 和 tar；源码构建还需要 Git，会下载精确版本的 pnpm，首次构建可能占用数 GB。缺少 Node.js ≥24.15.0 时，脚本将 Node 安装到 AutoKimi 独立目录。安装后显示启动命令和 PATH 指引。
+一键命令固定安装脚本及 AutoKimi 提交，并从固定 Kimi 基线构建；不再自动执行可变 main。指定 `--version` 获取运行包时，必须通过绑定仓库、工作流和提交的 GitHub 构建证明；本地包须提供独立可信的 `--sha256`。需要 curl 和 tar；源码构建还需要 Git，会下载精确版本的 pnpm，首次构建可能占用数 GB。缺少 Node.js ≥24.15.0 时，脚本将 Node 安装到 AutoKimi 独立目录。安装后显示启动命令和 PATH 指引。Linux 的 shell 沙箱需要 `/usr/bin/bwrap`、`/usr/bin/socat` 和 `/usr/bin/rg`，Debian/Ubuntu 可安装 `bubblewrap socat ripgrep`。macOS 使用系统 Seatbelt。
 
 已有源码时，在检出目录运行 `sh install.sh --source`。也可手动构建安装：
 
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
 cd AutoKimi
+git checkout --detach TRUSTED_COMMIT
 npm run build
 npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
@@ -101,6 +103,6 @@ autokimi runs stop <run-id>
 
 日常构建固定 Kimi **2.3.3**，MCP SDK **1.32.2**。`autokimi update` 获取最新项目源码并验证候选，`--install` 才安装；`autokimi upgrade` 还可能升级官方 `kimi`。`autokimi --version` 显示项目及源码身份。详见 [更新说明](docs/installation.md#更新)。
 
-审核调用使用所选 provider，会产生额外请求和费用，也可能误拒绝或误放行；它不是操作系统沙箱。参见[验证范围](docs/verification.md)。
+审核调用使用所选 provider，会产生额外请求和费用，也可能误拒绝或误放行；模型审核与 Bash 系统沙箱分别生效，文件工具及 MCP 不受 shell 沙箱约束。参见[验证范围](docs/verification.md)。
 
 基于 Moonshot AI 的 MIT 许可源码，保留其版权声明。详见 [LICENSE](LICENSE)、[LICENSE.upstream](LICENSE.upstream) 和 [NOTICE](NOTICE)。

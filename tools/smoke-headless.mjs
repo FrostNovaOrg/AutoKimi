@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { install, preparePackage } from './install.mjs';
@@ -18,17 +18,31 @@ await mkdir(cwd);
 await exec('git', ['init', '-q', cwd]);
 await writeFile(join(cwd, 'input.txt'), 'Synthetic input\n');
 const cliOption = process.argv.indexOf('--cli');
-let command = process.execPath;
+let shellNode = process.execPath;
+if (process.env.AUTOKIMI_SMOKE_NODE_SOURCE) {
+  const source = resolve(process.env.AUTOKIMI_SMOKE_NODE_SOURCE);
+  const nodeRoot = join(home, 'autokimi', 'tools', basename(source));
+  await mkdir(join(home, 'autokimi', 'tools'), { recursive: true });
+  await cp(source, nodeRoot, { recursive: true });
+  shellNode = join(nodeRoot, 'bin', 'node');
+}
+let command = shellNode;
 let prefix = [cliOption < 0 ? '' : resolve(process.argv[cliOption + 1])];
 let reviews = 0;
 let requests = 0;
 let hold = true;
+let networkAttempts = 0;
 const activeRuns = new Set();
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const server = createServer(async (request, response) => {
   let raw = '';
   for await (const chunk of request) raw += chunk;
+  if (request.method === 'GET') {
+    networkAttempts++;
+    response.end('synthetic network probe');
+    return;
+  }
   const body = JSON.parse(raw);
   requests++;
   const reviewer = JSON.stringify(body.messages?.[0]).includes(
@@ -86,15 +100,57 @@ const server = createServer(async (request, response) => {
             ],
           },
         };
+      else if (transcript.includes('CASE_SANDBOX_HOME') && completedTools === 0)
+        tool = {
+          name: 'Bash',
+          args: { command: 'printf changed >> "$KIMI_CODE_HOME/config.toml"' },
+        };
+      else if (transcript.includes('CASE_SANDBOX_LINK') && completedTools === 0)
+        tool = {
+          name: 'Bash',
+          args: {
+            command:
+              'a=AGENTS; ln "./$a.md" ./linked-notes.md && printf changed > ./linked-notes.md',
+          },
+        };
+      else if (
+        transcript.includes('CASE_SANDBOX_CHILD') &&
+        completedTools === 0
+      )
+        tool = {
+          name: 'Bash',
+          args: {
+            command:
+              shellQuote(shellNode) +
+              ' -e ' +
+              shellQuote(
+                'require("node:fs").writeFileSync(process.env.KIMI_CODE_HOME+"/config.toml","changed")',
+              ),
+          },
+        };
+      else if (transcript.includes('CASE_SANDBOX_NET') && completedTools === 0)
+        tool = {
+          name: 'Bash',
+          args: {
+            command:
+              shellQuote(shellNode) +
+              ' -e ' +
+              shellQuote(
+                'fetch("http://127.0.0.1:' +
+                  server.address().port +
+                  '/probe").then(()=>require("node:fs").writeFileSync("network-marker","unexpected")).catch(()=>process.exit(1))',
+              ),
+          },
+        };
       else if (transcript.includes('CASE_SHELL') && completedTools === 0)
         tool = {
           name: 'Bash',
           args: {
             command:
-              shellQuote(process.execPath) +
+              shellQuote(shellNode) +
               ' -e ' +
               shellQuote(
-                'require("node:fs").writeFileSync("child.pid",String(process.pid));setTimeout(()=>{},30000)',
+                'require("node:fs").writeFileSync("child.pid",String(process.pid));setInterval(()=>require("node:fs").writeFileSync("child.heartbeat",String(Date.now())),50)',
               ),
             timeout: 60,
           },
@@ -242,7 +298,23 @@ try {
     const runtime = await preparePackage(join(base, 'runtime'));
     await mkdir(join(home, 'bin'));
     await writeFile(join(home, 'bin', 'kimi'), 'official command sentinel\n');
-    const receipt = await install({ package: runtime, home });
+    const receipt = process.env.AUTOKIMI_SMOKE_NODE_SOURCE
+      ? JSON.parse(
+          (
+            await exec(
+              shellNode,
+              [
+                join(import.meta.dirname, 'install.mjs'),
+                '--package',
+                runtime,
+                '--home',
+                home,
+              ],
+              { env, maxBuffer: 8 * 1024 * 1024 },
+            )
+          ).stdout,
+        )
+      : await install({ package: runtime, home });
     command = receipt.launcher;
     prefix = [];
   }
@@ -377,16 +449,54 @@ try {
   assert.equal(restored.session_id, saved.session_id);
   assert.equal(restored.usage.steps, 3);
 
+  const configurationBefore = await readFile(join(home, 'config.toml'));
+  await writeFile(join(cwd, 'AGENTS.md'), 'Synthetic project instructions\n');
+  for (const name of ['HOME', 'LINK', 'CHILD', 'NET']) {
+    const probe = await call([
+      'exec',
+      '--prompt',
+      'CASE_SANDBOX_' + name,
+      '--cwd',
+      cwd,
+      '--timeout',
+      '20s',
+    ]);
+    assert.ok(
+      probe.events.some(
+        (event) => event.type === 'tool.result' && event.data.is_error,
+      ),
+      JSON.stringify(probe),
+    );
+    assert.deepEqual(
+      await readFile(join(home, 'config.toml')),
+      configurationBefore,
+    );
+    assert.equal(
+      await readFile(join(cwd, 'AGENTS.md'), 'utf8'),
+      'Synthetic project instructions\n',
+    );
+    await rm(join(cwd, 'linked-notes.md'), { force: true });
+  }
+  assert.equal(networkAttempts, 0);
+  assert.equal(existsSync(join(cwd, 'network-marker')), false);
   const waiting = await detach('CASE_SHELL', 'stop-shell');
-  await wait(waiting.run_id, () => existsSync(join(cwd, 'child.pid')));
+  await wait(
+    waiting.run_id,
+    () =>
+      existsSync(join(cwd, 'child.pid')) &&
+      existsSync(join(cwd, 'child.heartbeat')),
+  );
   const childPid = Number(await readFile(join(cwd, 'child.pid'), 'utf8'));
   assert.equal((await call(['runs', 'stop', waiting.run_id])).code, 0);
   assert.equal((await wait(waiting.run_id)).reason, 'cancelled');
-  await delay(100);
-  assert.throws(
-    () => process.kill(childPid, 0),
-    (error) => error.code === 'ESRCH',
-  );
+  const heartbeat = await readFile(join(cwd, 'child.heartbeat'), 'utf8');
+  await delay(200);
+  assert.equal(await readFile(join(cwd, 'child.heartbeat'), 'utf8'), heartbeat);
+  if (process.platform !== 'linux')
+    assert.throws(
+      () => process.kill(childPid, 0),
+      (error) => error.code === 'ESRCH',
+    );
 
   const question = await call([
     'exec',
@@ -434,7 +544,7 @@ try {
   assert.equal(recovered.code, 0, JSON.stringify(recovered));
   assert.equal((await status(interrupted.run_id)).usage.requests, 2);
   console.log(
-    'Headless runtime smoke passed: reviewed writes, denial reporting, idempotency, cursors, inherited budgets, session resume, stop/child cleanup, blocked input, review enforcement and crash recovery.',
+    'Headless runtime smoke passed: reviewed writes, denial reporting, idempotency, cursors, inherited budgets, session resume, stop/child cleanup, blocked input, review enforcement, OS shell containment and crash recovery.',
   );
 } finally {
   for (const id of activeRuns) {

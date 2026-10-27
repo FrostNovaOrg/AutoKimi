@@ -68,3 +68,9 @@ Headless execution retains native denials and checks file capabilities before na
 Candidates verify the CDN version, Git tag, npm SHA-512, signatures and provenance commit, plus Node, pnpm and native dependencies. An isolated source directory is used for build, regression tests and installation smoke tests. Only explicit `--install` or `upgrade` changes installation; failures retain the old release.
 
 `build-kit/` contains source differences, tools, tests and documentation, without Git metadata. `check` uses the Git file list in a checkout and scans source while excluding generated directories in a build-kit. Both validate size, sensitive content and documentation links. `git diff --check` runs only with the project's own Git metadata. Update work and reports live under `KIMI_CODE_HOME/autokimi/update-work`. There are no background updates; normal builds use the baseline lock.
+
+## OS sandbox and file sinks
+
+`autokimiSandbox` wraps the final Bash command as restricted argv, without an unrestricted outer shell by default. The pinned Anthropic runtime manages Seatbelt/bubblewrap and network proxies; the parent holds policy, domains and lifecycle. SDK shutdown awaits proxy cleanup. Permission failures never trigger an automatic unsandboxed retry. Model services, file tools and MCP sit outside this shell boundary.
+
+`reviewSafeWrite` lives in the local filesystem backend, so plan and allow-rule shortcuts still reject multi-link files. Full writes validate and atomically replace rather than truncating the old inode; appends use verified descriptors. Review evidence includes current file identity, avoiding dependence on the historical-action window to infer aliases.

@@ -58,7 +58,7 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 
 候选更新、项目源码获取、安装回执和失败状态见 [安装说明](installation.md#更新)。
 
-源码预算为 832 KiB，覆盖冻结依赖补丁、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
+源码预算为 896 KiB，覆盖冻结依赖补丁、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
 
 ## 发布前的仓库审计
 
@@ -69,3 +69,5 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 当前源码保持 npm 的 `private: true` 以防误发布，不影响 GitHub 开源。发布产物流程见 [安装文档](installation.md#维护者打包-release)。平台未实测的部分需如实说明；CI 的实际运行结果须另行核实，不得用本地结果代替。
 
 `test:headless` 使用实际安装包和本地模拟模型服务，验证幂等、事件游标、真实文件工具审核、权限拒绝、累计预算续跑、取消与子进程清理、输入阻塞和 worker 崩溃恢复，不调用真实付费模型。手动完整 CI 同时运行此烟测。
+
+安全修复回归还覆盖本地文件后端、受保护路径发现和评测脚本。`test:headless` 使用始终允许的合成审核服务验证实际 shell 的配置写入、变量拆分链接、嵌套解释器和网络限制。Linux 集成 CI 安装 bubblewrap、socat 和 ripgrep。发布者可手动运行 `release.yml` 生成带 GitHub 构建证明的归档；工作流不自动发布 Release，安装者须绑定实际构建提交。

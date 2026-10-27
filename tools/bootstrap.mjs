@@ -74,6 +74,32 @@ export async function releaseAssets(version, fetcher = get) {
   };
 }
 
+export function verifyReleaseAttestation(archive, revision, execute = run) {
+  assert.match(
+    revision ?? '',
+    /^[a-f0-9]{40}$/,
+    'A full trusted source revision is required',
+  );
+  execute(
+    'gh',
+    [
+      'attestation',
+      'verify',
+      archive,
+      '--repo',
+      repository,
+      '--signer-workflow',
+      repository + '/.github/workflows/release.yml',
+      '--signer-digest',
+      revision,
+      '--source-digest',
+      revision,
+      '--deny-self-hosted-runners',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 },
+  );
+}
+
 export async function installArchive(archive, options = {}) {
   assert.equal(typeof options.home, 'string', 'Installation home is required');
   archive = resolve(archive);
@@ -96,6 +122,19 @@ export async function installArchive(archive, options = {}) {
     matches[0][1].toLowerCase(),
     'Archive checksum mismatch',
   );
+  const actualDigest = sha256(await readFile(archive));
+  if (options.sha256 !== undefined) {
+    assert.match(
+      options.sha256,
+      /^[a-f0-9]{64}$/,
+      'Expected a trusted SHA-256 digest',
+    );
+    assert.equal(
+      actualDigest,
+      options.sha256,
+      'Trusted archive digest mismatch',
+    );
+  } else verifyReleaseAttestation(archive, options.revision);
   const paths = run('tar', ['-tzf', archive], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -159,7 +198,11 @@ async function installSource(options, temporary) {
     'Building the pinned runtime from source; this downloads dependencies and may use several GB.',
   );
   const source = join(temporary, 'source');
-  const env = { ...environment(), GIT_TERMINAL_PROMPT: '0' };
+  const env = {
+    ...environment(),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ALLOW_PROTOCOL: 'https',
+  };
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (token) {
     const index = Number(env.GIT_CONFIG_COUNT || 0);
@@ -180,18 +223,68 @@ async function installSource(options, temporary) {
       'Source installation needs Git. Install Git, or use a published runtime package.',
     );
   }
+  assert.match(
+    options.revision ?? '',
+    /^[a-f0-9]{40}$/,
+    'Source installation requires a full trusted revision',
+  );
+  run('git', ['init', '-q', source], { env });
   run(
     'git',
     [
-      'clone',
-      '--depth=1',
-      '--branch',
-      options.version || 'main',
-      `https://github.com/${repository}.git`,
+      '-C',
       source,
+      'remote',
+      'add',
+      'origin',
+      `https://github.com/${repository}.git`,
     ],
     { env },
   );
+  run(
+    'git',
+    [
+      '-C',
+      source,
+      '-c',
+      'core.hooksPath=/dev/null',
+      'fetch',
+      '--depth=1',
+      'origin',
+      options.revision,
+    ],
+    { env },
+  );
+  run(
+    'git',
+    [
+      '-C',
+      source,
+      '-c',
+      'core.hooksPath=/dev/null',
+      'checkout',
+      '--detach',
+      'FETCH_HEAD',
+    ],
+    { env },
+  );
+  assert.equal(
+    run('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }).trim(),
+    options.revision,
+    'Fetched source revision mismatch',
+  );
+  if (options.version !== undefined)
+    assert.equal(
+      'v' +
+        JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
+          .version,
+      options.version,
+      'Requested source version mismatch',
+    );
   const lock = JSON.parse(
     await readFile(join(source, 'upstream.lock.json'), 'utf8'),
   );
@@ -251,7 +344,15 @@ export async function bootstrap(values) {
     home,
     timeout: values['timeout-ms'],
     version: values.version,
+    revision: values.revision ?? process.env.AUTOKIMI_SOURCE_REVISION,
+    sha256: values.sha256,
   };
+  if (options.revision !== undefined)
+    assert.match(
+      options.revision,
+      /^[a-f0-9]{40}$/,
+      'Use a full trusted source revision',
+    );
   if (options.version !== undefined)
     assert.match(
       options.version,
@@ -271,9 +372,15 @@ export async function bootstrap(values) {
   try {
     if (values.package) receipt = await installArchive(values.package, options);
     else {
-      const release = values.source
-        ? undefined
-        : await releaseAssets(options.version);
+      let canVerify = false;
+      try {
+        run('gh', ['attestation', 'verify', '--help'], { stdio: 'ignore' });
+        canVerify = true;
+      } catch {}
+      const release =
+        values.source || !canVerify || options.version === undefined
+          ? undefined
+          : await releaseAssets(options.version);
       if (release) {
         console.log(`Downloading ${release.name}`);
         for (const [url, name] of [
@@ -332,13 +439,15 @@ if (
         package: { type: 'string' },
         source: { type: 'boolean' },
         version: { type: 'string' },
+        revision: { type: 'string' },
+        sha256: { type: 'string' },
         'timeout-ms': { type: 'string' },
         help: { type: 'boolean' },
       },
     });
     if (values.help)
       console.log(
-        'Usage: sh install.sh [--source | --package archive.tar.gz] [--version v0.2.2] [--home directory] [--timeout-ms 90000]\nPrefers a verified runtime release; otherwise builds pinned sources. Native kimi is preserved.',
+        'Usage: sh install.sh [--source | --package archive.tar.gz] [--version v0.3.1] [--home directory] [--timeout-ms 90000]\nRequires a trusted --revision; packages need GitHub attestation or an out-of-band --sha256. Native kimi is preserved.',
       );
     else await bootstrap(values);
   } catch (error) {

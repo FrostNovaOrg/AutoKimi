@@ -7,3 +7,6 @@ License: MIT (see LICENSE.upstream)
 
 AutoKimi is an independent project. It is not an official Moonshot AI release.
 Runtime dependencies retain their own licenses in the generated runtime package.
+
+Shell confinement uses Anthropic Sandbox Runtime, licensed under Apache-2.0.
+Its license and dependency notices are retained in the generated runtime package.

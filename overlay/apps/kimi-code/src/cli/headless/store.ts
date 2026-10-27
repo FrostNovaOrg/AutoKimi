@@ -5,6 +5,7 @@ import {
   constants,
   existsSync,
   fsyncSync,
+  fstatSync,
   lstatSync,
   linkSync,
   mkdirSync,
@@ -129,7 +130,7 @@ function safeDirectory(path: string, privateMode = true): void {
 
 function safeFile(path: string): void {
   const stat = lstatSync(path);
-  if (!stat.isFile() || (stat.mode & 0o077) !== 0)
+  if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0)
     throw new RunError(
       'unsafe_store',
       'Run state must be a private regular file.',
@@ -279,10 +280,14 @@ export class RunStore {
       constants.O_CREAT |
         constants.O_APPEND |
         constants.O_WRONLY |
-        constants.O_NOFOLLOW,
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK,
       0o600,
     );
     try {
+      const file = fstatSync(fd);
+      if (!file.isFile() || file.nlink !== 1)
+        throw new RunError('unsafe_store', 'Unsafe event journal');
       appendFileSync(fd, JSON.stringify(event) + '\n');
       fsyncSync(fd);
     } finally {

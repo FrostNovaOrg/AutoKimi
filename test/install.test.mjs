@@ -528,3 +528,24 @@ test('packages the build kit and routes updates through fresh project source', a
     /private file/,
   );
 });
+
+test('version queries never execute a modified update tool or SDK', async (t) => {
+  const f = await fixture(t);
+  const receipt = await install(f);
+  const marker = join(f.root, 'unexpected-update-execution');
+  await writeFile(
+    join(receipt.distribution, 'build-kit/tools/update-project.mjs'),
+    `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'executed');`,
+  );
+  await writeFile(
+    join(receipt.distribution, 'config-sdk/index.mjs'),
+    `throw new Error('SDK must not run during version query');`,
+  );
+  for (const flag of ['--version', '-V', 'version']) {
+    const text = execFileSync(receipt.launcher, [flag], { encoding: 'utf8' });
+    assert.match(text, /^AutoKimi /);
+    assert.ok(text.includes('Kimi ' + receipt.version));
+  }
+  assert.equal(receipt.versionStrategy, 'static-v1');
+  assert.equal(existsSync(marker), false);
+});

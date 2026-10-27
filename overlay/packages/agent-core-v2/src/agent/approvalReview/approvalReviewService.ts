@@ -1,6 +1,12 @@
 import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants, readFileSync, readlinkSync, realpathSync } from 'node:fs';
+import {
+  constants,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -244,7 +250,28 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
           args: context.args,
           cwd: this.session.cwd,
         };
+        const fileAccesses = context.execution.accesses?.flatMap((access) => {
+          if (access.kind !== 'file') return [];
+          try {
+            const path = realpathSync(resolve(this.session.cwd, access.path));
+            const file = statSync(path);
+            return [
+              {
+                path: access.path,
+                operation: access.operation,
+                realPath: path,
+                links: file.nlink,
+                device: file.dev,
+                inode: file.ino,
+              },
+            ];
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            return [{ path: access.path, operation: access.operation }];
+          }
+        });
         const evidence = reviewEvidence({
+          fileAccesses,
           userRequests: initialAuthorization.requests,
           history: this.contextMemory.get(),
           toolName: action.tool,
@@ -684,7 +711,34 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   }
 
   private protectedAction(context: ResolvedToolExecutionHookContext): boolean {
-    if (this.verifiedVersionCheck(context)) return false;
+    const command =
+      context.toolCall.name === 'Bash' &&
+      typeof context.args === 'object' &&
+      context.args !== null &&
+      'command' in context.args
+        ? context.args.command
+        : undefined;
+    if (
+      typeof command === 'string' &&
+      [
+        join(this.bootstrap.homeDir, 'bin', 'kimi'),
+        join(this.bootstrap.homeDir, 'bin', 'autokimi'),
+      ].some((path) =>
+        ['--version', '-V', 'version'].some(
+          (flag) => command.trim() === path + ' ' + flag,
+        ),
+      )
+    )
+      return !this.verifiedVersionCheck(context);
+    for (const access of context.execution.accesses ?? []) {
+      if (access.kind !== 'file' || access.operation === 'read') continue;
+      try {
+        const file = statSync(access.path);
+        if (file.isFile() && file.nlink !== 1) return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return true;
+      }
+    }
     const protectedPath = (path: string): boolean => {
       const matches = (candidate: string): boolean => {
         const fromHome = relative(this.bootstrap.homeDir, candidate);
@@ -756,6 +810,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
         mainSha256?: unknown;
         launcherSha256?: unknown;
         officialSha256?: unknown;
+        versionStrategy?: unknown;
       };
       if (
         typeof receipt.distribution !== 'string' ||
@@ -779,6 +834,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
           this.fileSha256(official) === receipt.officialSha256
         );
       return (
+        receipt.versionStrategy === 'static-v1' &&
         typeof receipt.launcherSha256 === 'string' &&
         this.fileSha256(autokimi) === receipt.launcherSha256 &&
         this.fileSha256(join(receipt.distribution, 'dist', 'main.mjs')) ===
@@ -831,7 +887,8 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       constants.O_WRONLY |
         constants.O_APPEND |
         constants.O_CREAT |
-        constants.O_NOFOLLOW,
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK,
       0o600,
     );
     const reason =
@@ -839,6 +896,9 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
         ? 'Model decision; see the session transcript for its reason.'
         : decision.reason;
     try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.nlink !== 1)
+        throw new Error('Unsafe review audit file');
       await file.writeFile(
         `${JSON.stringify({ timestamp: new Date().toISOString(), agentId: this.scope.agentId, turnId: context.turnId, toolCallId: context.toolCall.id, tool: context.toolCall.name, ...decision, reason })}\n`,
       );

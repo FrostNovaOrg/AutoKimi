@@ -1,8 +1,12 @@
 diff --git a/packages/agent-core-v2/package.json b/packages/agent-core-v2/package.json
-index 585cfdd..5a28978 100644
+index 585cfdd..2ad877d 100644
 --- a/packages/agent-core-v2/package.json
 +++ b/packages/agent-core-v2/package.json
-@@ -60,7 +60,7 @@
+@@ -57,10 +57,11 @@
+   },
+   "dependencies": {
+     "@antfu/utils": "^9.3.0",
++    "@anthropic-ai/sandbox-runtime": "0.0.81",
      "@anthropic-ai/sdk": "^0.95.2",
      "@google/genai": "^1.49.0",
      "@jsquash/webp": "^1.5.0",
@@ -637,8 +641,20 @@ index cbba4db..99d4a00 100644
      redirect_uris: ['http://127.0.0.1:11111/callback'],
    };
  
+diff --git a/packages/node-sdk/package.json b/packages/node-sdk/package.json
+index 292c8c3..ba46021 100644
+--- a/packages/node-sdk/package.json
++++ b/packages/node-sdk/package.json
+@@ -53,6 +53,7 @@
+     "clean": "rm -rf dist .tmp-api-extractor"
+   },
+   "dependencies": {
++    "@anthropic-ai/sandbox-runtime": "0.0.81",
+     "@antfu/utils": "^9.3.0",
+     "smol-toml": "^1.6.1",
+     "yazl": "^3.3.1",
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index b43b96d..4649579 100644
+index b43b96d..8383b8b 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -13,6 +13,7 @@ catalogs:
@@ -649,7 +665,25 @@ index b43b96d..4649579 100644
  
  importers:
  
-@@ -510,13 +511,13 @@ importers:
+@@ -72,6 +73,9 @@ importers:
+ 
+   apps/kimi-code:
+     dependencies:
++      '@anthropic-ai/sandbox-runtime':
++        specifier: 0.0.81
++        version: 0.0.81
+       chokidar:
+         specifier: ^4.0.3
+         version: 4.0.3
+@@ -505,18 +509,21 @@ importers:
+       '@antfu/utils':
+         specifier: ^9.3.0
+         version: 9.3.0
++      '@anthropic-ai/sandbox-runtime':
++        specifier: 0.0.81
++        version: 0.0.81
+       '@anthropic-ai/sdk':
+         specifier: ^0.95.2
          version: 0.95.2(zod@4.3.6)
        '@google/genai':
          specifier: ^1.49.0
@@ -666,7 +700,7 @@ index b43b96d..4649579 100644
        '@moonshot-ai/kimi-code-oauth':
          specifier: workspace:^
          version: link:../oauth
-@@ -729,7 +730,7 @@ importers:
+@@ -729,7 +736,7 @@ importers:
          version: 0.95.2(zod@4.3.6)
        '@google/genai':
          specifier: ^1.49.0
@@ -675,7 +709,29 @@ index b43b96d..4649579 100644
        openai:
          specifier: ^6.34.0
          version: 6.34.0(ws@8.20.0)(zod@4.3.6)
-@@ -2026,7 +2027,7 @@ packages:
+@@ -770,6 +777,9 @@ importers:
+       '@antfu/utils':
+         specifier: ^9.3.0
+         version: 9.3.0
++      '@anthropic-ai/sandbox-runtime':
++        specifier: 0.0.81
++        version: 0.0.81
+       smol-toml:
+         specifier: ^1.6.1
+         version: 1.6.1
+@@ -972,6 +982,11 @@ packages:
+   '@antfu/utils@9.3.0':
+     resolution: {integrity: sha512-9hFT4RauhcUzqOE4f1+frMKLZrgNog5b06I7VmZQV1BkvwvqrbC8EBZf3L1eEL2AKb6rNKjER0sEvJiSP1FXEA==}
+ 
++  '@anthropic-ai/sandbox-runtime@0.0.81':
++    resolution: {integrity: sha512-bjHDu87gjIR7+Oxy9jPiK3v8CvSELCzfpXa3fjqfSKdvlZET2iF51xcXILWPayTpowB3xtZeQVf2JR916nVW/w==}
++    engines: {node: '>=22.12.0'}
++    hasBin: true
++
+   '@anthropic-ai/sdk@0.95.2':
+     resolution: {integrity: sha512-Egddwo3sheo1PzUrMkZnH6VkQYwS0h/b/i8vSK8Ta9M45UQipAMeDFH57dYuDAfXMEUUGeKw6CMlremgMZgrSQ==}
+     hasBin: true
+@@ -2026,7 +2041,7 @@ packages:
      resolution: {integrity: sha512-hO69Zl0H3x+L0KL4stl1pLYgnqnwHoLqtKy6MRlNnW8TAxjqMdOUVafomKd4z1BePkzoxJWbYILny9a2Zk43VQ==}
      engines: {node: '>=20.0.0'}
      peerDependencies:
@@ -684,7 +740,7 @@ index b43b96d..4649579 100644
      peerDependenciesMeta:
        '@modelcontextprotocol/sdk':
          optional: true
-@@ -2329,8 +2330,8 @@ packages:
+@@ -2329,8 +2344,8 @@ packages:
    '@microsoft/tsdoc@0.16.0':
      resolution: {integrity: sha512-xgAyonlVVS+q7Vc7qLW0UrJU7rSFcETRWsqdXZtjzRU8dF+6CkozTK4V4y1LwOX7j8r/vHphjDeMeGI4tNGeGA==}
  
@@ -695,7 +751,42 @@ index b43b96d..4649579 100644
      engines: {node: '>=18'}
      peerDependencies:
        '@cfworker/json-schema': ^4.1.1
-@@ -10584,14 +10585,14 @@ snapshots:
+@@ -2639,6 +2654,9 @@ packages:
+     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
+     engines: {node: '>=14'}
+ 
++  '@pondwader/socks5-server@1.0.10':
++    resolution: {integrity: sha512-bQY06wzzR8D2+vVCUoBsr5QS2U6UgPUQRmErNwtsuI6vLcyRKkafjkr3KxbtGFf9aBBIV2mcvlsKD1UYaIV+sg==}
++
+   '@protobufjs/aspromise@1.1.2':
+     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
+ 
+@@ -7279,6 +7297,10 @@ packages:
+     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
+     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+ 
++  node-forge@1.4.1:
++    resolution: {integrity: sha512-w5/MfWaeMrpR/5ba6fZyAUTLSuE6aYz7H/3cYrqwZEmf5eQS3IaaLgJt4MBv7HglGFWmV22K8h4U18RJQmw/ow==}
++    engines: {node: '>= 6.13.0'}
++
+   node-gyp-build@4.8.4:
+     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
+     hasBin: true
+@@ -9510,6 +9532,13 @@ snapshots:
+ 
+   '@antfu/utils@9.3.0': {}
+ 
++  '@anthropic-ai/sandbox-runtime@0.0.81':
++    dependencies:
++      '@pondwader/socks5-server': 1.0.10
++      commander: 12.1.0
++      node-forge: 1.4.1
++      zod: 3.25.76
++
+   '@anthropic-ai/sdk@0.95.2(zod@4.3.6)':
+     dependencies:
+       json-schema-to-ts: 3.1.1
+@@ -10584,14 +10613,14 @@ snapshots:
  
    '@fontsource-variable/inter@5.2.8': {}
  
@@ -712,7 +803,7 @@ index b43b96d..4649579 100644
      transitivePeerDependencies:
        - bufferutil
        - supports-color
-@@ -11022,7 +11023,7 @@ snapshots:
+@@ -11022,7 +11051,7 @@ snapshots:
  
    '@microsoft/tsdoc@0.16.0': {}
  
@@ -721,7 +812,7 @@ index b43b96d..4649579 100644
      dependencies:
        '@hono/node-server': 1.19.14(hono@4.12.14)
        ajv: 8.18.0
-@@ -11044,7 +11045,7 @@ snapshots:
+@@ -11044,7 +11073,7 @@ snapshots:
      transitivePeerDependencies:
        - supports-color
  
@@ -730,7 +821,34 @@ index b43b96d..4649579 100644
      dependencies:
        '@hono/node-server': 1.19.14(hono@4.12.14)
        ajv: 8.18.0
-@@ -17367,7 +17368,7 @@ snapshots:
+@@ -11269,6 +11298,8 @@ snapshots:
+   '@pkgjs/parseargs@0.11.0':
+     optional: true
+ 
++  '@pondwader/socks5-server@1.0.10': {}
++
+   '@protobufjs/aspromise@1.1.2': {}
+ 
+   '@protobufjs/base64@1.1.2': {}
+@@ -13019,7 +13050,7 @@ snapshots:
+       obug: 2.1.1
+       std-env: 4.0.0
+       tinyrainbow: 3.1.0
+-      vitest: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@30.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
++      vitest: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@30.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+ 
+   '@vitest/expect@4.1.4':
+     dependencies:
+@@ -16242,6 +16273,8 @@ snapshots:
+       fetch-blob: 3.2.0
+       formdata-polyfill: 4.0.10
+ 
++  node-forge@1.4.1: {}
++
+   node-gyp-build@4.8.4: {}
+ 
+   node-pty@1.1.0:
+@@ -17367,7 +17400,7 @@ snapshots:
        '@babel/plugin-transform-typescript': 7.29.7(@babel/core@7.29.0)
        '@babel/preset-typescript': 7.29.7(@babel/core@7.29.0)
        '@dotenvx/dotenvx': 1.75.1

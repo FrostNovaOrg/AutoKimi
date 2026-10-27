@@ -14,17 +14,18 @@ When a tool operation requires approval, the reviewer uses the user's authorizat
 
 ## Features and boundaries
 
+- Isolate shell writes and network access by default; unavailable sandboxes refuse execution without an automatic fallback.
 - Review pending tool actions in the native TUI, with two-stage decisions, service retries and an audit trail.
 - Request one exact retry for eligible model denials, with complete action details and a confirmation that defaults to Cancel.
 - Submit agent-friendly headless jobs with JSONL events, idempotency keys, cumulative budgets, cancellation and native-context continuation.
 - Choose a separate reviewer model, provider and endpoint, or follow the current agent's model by default.
 - Rebuild from a pinned upstream commit, frozen dependencies and patches; install and update independently while retaining older runtime packages.
 
-In the TUI, existing allow/deny rules run first and the reviewer receives pending actions. Headless `exec` additionally requires review for side-effect tools, while preserving native denials and a limited read-only tool set. Models can make incorrect decisions; neither entry provides operating system isolation. Use native Kimi for ACP and Web services.
+In the TUI, existing allow/deny rules run first and the reviewer receives pending actions. Headless `exec` additionally requires review for side-effect tools, while preserving native denials and a limited read-only tool set. Models can make incorrect decisions. Version 0.3.1 sandboxes Bash and its descendants through Anthropic’s OS sandbox runtime by default; file tools and MCP retain their own permission boundaries. Use native Kimi for ACP and Web services.
 
 | Item                 | Current status                                                                     |
 | -------------------- | ---------------------------------------------------------------------------------- |
-| AutoKimi / Kimi Code | 0.3.0 / 2.3.3                                                                      |
+| AutoKimi / Kimi Code | 0.3.1 / 2.3.3                                                                      |
 | Build requirements   | Node.js ≥24.15.0; pnpm 10.33.0                                                     |
 | Tested               | macOS ARM64: build, TUI regression tests and both installation paths               |
 | Pending validation   | Linux terminal interaction and other platform combinations; Windows is unsupported |
@@ -36,16 +37,17 @@ Linux x64 CI has passed build, regression and isolated installation checks; see 
 The installer supports macOS/Linux on ARM64 and x64. macOS ARM64 has been tested interactively; Linux x64 has passed CI checks. Run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
 ```
 
-The script prefers a matching GitHub Release package and verifies its SHA-256 checksum. When no package is published, it builds from source using the pinned Kimi baseline. It requires curl and tar; source builds also require Git and download the exact pnpm version. A first build may use several GB of disk space. If Node.js ≥24.15.0 is missing, the script installs Node in AutoKimi's own directory. It prints the launch command and PATH instructions when finished.
+The command pins both the installer and AutoKimi source commit, then builds the pinned Kimi baseline. It does not execute mutable main. Runtime packages requested with `--version` require GitHub provenance bound to the repository, workflow and commit. Local packages require an independently trusted `--sha256`. It requires curl and tar; source builds also require Git and download the exact pnpm version. A first build may use several GB of disk space. If Node.js ≥24.15.0 is missing, the script installs Node in AutoKimi's own directory. It prints the launch command and PATH instructions when finished. Linux shell sandboxing requires `/usr/bin/bwrap`, `/usr/bin/socat` and `/usr/bin/rg` (`bubblewrap socat ripgrep` on Debian/Ubuntu). macOS uses system Seatbelt.
 
 With an existing checkout, run `sh install.sh --source`. You can also build and install manually:
 
 ```sh
 git clone https://github.com/FrostNovaOrg/AutoKimi.git
 cd AutoKimi
+git checkout --detach TRUSTED_COMMIT
 npm run build
 npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
@@ -101,6 +103,6 @@ Tasks use automatic review and caller-owned budgets. `--resume <run-id>` continu
 
 Normal builds pin Kimi **2.3.3** and MCP SDK **1.32.2**. `autokimi update` fetches current project source and validates a candidate; installation requires `--install`. `autokimi upgrade` may also upgrade the official `kimi`. `autokimi --version` shows the project and source identity. See [updates](docs/en/installation.md#updates).
 
-Reviews call the selected provider, adding requests and potential costs. Incorrect denials and approvals remain possible; this is not an operating system sandbox. See the [verification scope](docs/en/verification.md).
+Reviews call the selected provider, adding requests and potential costs. Incorrect denials and approvals remain possible; model review and the Bash OS sandbox are separate layers; file tools and MCP run outside that shell sandbox. See the [verification scope](docs/en/verification.md).
 
 Based on Moonshot AI's MIT-licensed source, with its copyright notices retained. See [LICENSE](LICENSE), [LICENSE.upstream](LICENSE.upstream) and [NOTICE](NOTICE).

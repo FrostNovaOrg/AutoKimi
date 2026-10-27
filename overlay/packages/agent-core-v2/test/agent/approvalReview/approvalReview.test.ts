@@ -3,7 +3,14 @@ import {
   IAutoKimiHeadless,
 } from '#/app/autokimiHeadless/control';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -963,6 +970,45 @@ describe('AgentApprovalReviewService', () => {
     });
   });
 
+  it('denies writes through a hardlink alias before calling the reviewer', async () => {
+    const t = await setup();
+    const home = join(t.directory, 'home');
+    await mkdir(home);
+    const protectedFile = join(home, 'AGENTS.md');
+    const alias = join(t.directory, 'notes.md');
+    await writeFile(protectedFile, 'original');
+    await link(protectedFile, alias);
+    const base = t.context();
+    const context = {
+      ...base,
+      toolCall: { ...base.toolCall, name: 'Write' },
+      args: { path: alias, content: 'changed' },
+      execution: {
+        ...base.execution,
+        accesses: [
+          { kind: 'file' as const, operation: 'write' as const, path: alias },
+        ],
+      },
+    };
+    expect(
+      (await t.service.review(context, { kind: 'ask' }, 'fallback-ask')).kind,
+    ).toBe('deny');
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(await readFile(protectedFile, 'utf8')).toBe('original');
+  });
+
+  it('refuses an audit hardlink without appending to its target', async () => {
+    const t = await setup();
+    const target = join(t.directory, 'unrelated.txt');
+    await writeFile(target, 'original');
+    await link(target, join(t.directory, 'approval-review.jsonl'));
+    expect(
+      (await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'))
+        .kind,
+    ).toBe('deny');
+    expect(await readFile(target, 'utf8')).toBe('original');
+  });
+
   async function versionFixture(t: Awaited<ReturnType<typeof setup>>) {
     const home = join(t.directory, 'home');
     const distribution = join(home, 'autokimi', 'releases', 'release1');
@@ -988,11 +1034,30 @@ describe('AgentApprovalReviewService', () => {
         distribution,
         mainSha256: await hash(main),
         launcherSha256: await hash(autokimi),
+        versionStrategy: 'static-v1',
         officialSha256: await hash(official),
       }),
     );
     return { official, autokimi, main, receiptPath };
   }
+
+  it('rejects legacy version routes even without file-access metadata', async () => {
+    const t = await setup();
+    const fixture = await versionFixture(t);
+    const receipt = JSON.parse(await readFile(fixture.receiptPath, 'utf8'));
+    delete receipt.versionStrategy;
+    await writeFile(fixture.receiptPath, JSON.stringify(receipt));
+    expect(
+      (
+        await t.service.review(
+          t.context(fixture.autokimi + ' --version'),
+          { kind: 'ask' },
+          'fallback-ask',
+        )
+      ).kind,
+    ).toBe('deny');
+    expect(t.generate).not.toHaveBeenCalled();
+  });
 
   function versionReview(
     t: Awaited<ReturnType<typeof setup>>,

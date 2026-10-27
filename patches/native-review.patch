@@ -1538,10 +1538,10 @@ index 3c18d24..fed56ef 100644
        );
      });
 diff --git a/packages/node-sdk/src/config/schema.ts b/packages/node-sdk/src/config/schema.ts
-index b149791..3952ed2 100644
+index b149791..f2b58ba 100644
 --- a/packages/node-sdk/src/config/schema.ts
 +++ b/packages/node-sdk/src/config/schema.ts
-@@ -135,8 +135,20 @@ export const PermissionRuleSchema = z.object({
+@@ -135,8 +135,22 @@ export const PermissionRuleSchema = z.object({
    reason: z.string().optional(),
  });
  
@@ -1551,6 +1551,8 @@ index b149791..3952ed2 100644
 +    timeoutMs: z.number().int().min(1000).max(120000).default(30000),
 +    maxContextChars: z.number().int().min(4000).max(100000).default(24000),
 +    twoStage: z.boolean().default(true),
++    shellSandbox: z.boolean().default(true),
++    shellAllowedDomains: z.array(z.string().min(1)).max(100).default([]),
 +    policy: z.string().max(8000).optional(),
 +  })
 +  .strict();
@@ -1562,7 +1564,7 @@ index b149791..3952ed2 100644
  });
  
  export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
-@@ -319,10 +331,30 @@ export const KimiConfigSchema = z.object({
+@@ -319,10 +333,32 @@ export const KimiConfigSchema = z.object({
  
  export type KimiConfig = z.infer<typeof KimiConfigSchema>;
  
@@ -1582,6 +1584,8 @@ index b149791..3952ed2 100644
 +    timeoutMs: z.number().int().min(1000).max(120000).optional(),
 +    maxContextChars: z.number().int().min(4000).max(100000).optional(),
 +    twoStage: z.boolean().optional(),
++    shellSandbox: z.boolean().optional(),
++    shellAllowedDomains: z.array(z.string().min(1)).max(100).optional(),
 +    policy: z.string().max(8000).optional(),
 +  })
 +  .strict();
@@ -1690,7 +1694,7 @@ index 2cd1ae2..14c40e8 100644
      ],
      toolCalls: [],
 diff --git a/packages/node-sdk/test/config.test.ts b/packages/node-sdk/test/config.test.ts
-index d73de48..5a7531d 100644
+index d73de48..9c3f962 100644
 --- a/packages/node-sdk/test/config.test.ts
 +++ b/packages/node-sdk/test/config.test.ts
 @@ -24,6 +24,22 @@ async function makeTempDir(): Promise<string> {
@@ -1710,7 +1714,7 @@ index d73de48..5a7531d 100644
 +[experimental]
 +approval_review = true
 +`);
-+    expect(config.permission?.review).toEqual({ model: 'provider/reviewer', timeoutMs: 45000, maxContextChars: 16000, twoStage: false, policy: 'Keep production changes manual.' });
++    expect(config.permission?.review).toEqual({ model: 'provider/reviewer', timeoutMs: 45000, maxContextChars: 16000, twoStage: false, shellSandbox: true, shellAllowedDomains: [], policy: 'Keep production changes manual.' });
 +    expect(configToTomlData(config)).toMatchObject({ permission: { dangerous_command_guard: true, review: { model: 'provider/reviewer', timeout_ms: 45000, max_context_chars: 16000, two_stage: false } }, experimental: { approval_review: true } });
 +  });
    it('resolves config paths through the config RPC wrapper', async () => {

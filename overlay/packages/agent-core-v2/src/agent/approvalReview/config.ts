@@ -19,6 +19,8 @@ export const ApprovalReviewConfigSchema = z
     timeoutMs: z.number().int().min(1000).max(120000).default(30000),
     maxContextChars: z.number().int().min(4000).max(100000).default(60000),
     twoStage: z.boolean().default(true),
+    shellSandbox: z.boolean().default(true),
+    shellAllowedDomains: z.array(z.string().min(1)).max(100).default([]),
     policy: z.string().max(8000).optional(),
   })
   .strict();

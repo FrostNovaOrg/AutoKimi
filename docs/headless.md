@@ -2,7 +2,7 @@
 
 [English](en/headless.md) | [简体中文](headless.md)
 
-AutoKimi 0.3.0 提供显式 `exec` 入口，适合主代理、任务编排器和脚本调用。默认 `autokimi` 仍进入 TUI；原生 `-p`、ACP 和 Web 服务入口继续禁止。调用前配置好 Kimi 登录、主模型和审核模型，无头进程不会交互登录或索取人工审批。
+AutoKimi 0.3.1 提供显式 `exec` 入口，适合主代理、任务编排器和脚本调用。默认 `autokimi` 仍进入 TUI；原生 `-p`、ACP 和 Web 服务入口继续禁止。调用前配置好 Kimi 登录、主模型和审核模型，无头进程不会交互登录或索取人工审批。
 
 ## 提交、观察与停止
 
@@ -77,9 +77,9 @@ worker 丢失时标为 `interrupted/worker_lost`。恢复使用原生 SDK 历史
 
 无头入口强制 Always Ask 和自动审核；审核被环境关闭时，模型调用前失败。试图切换到 auto/yolo 会停止运行。原生 deny 始终生效；通常被原生 allow 直接放行的副作用工具也进入审核。只读工具集保留直接执行路径，但仍受预算、文件范围和原生拒绝规则约束。
 
-`--cwd` 是文件工具的授权工作区，检查真实路径和符号链接，并保护 Kimi home。`--read-only` 只允许有限读取、查询和任务内状态工具，禁用 Bash、写入和 MCP 等副作用能力。默认关闭 WebSearch、FetchURL 与 MCP；`--allow-network` 允许这些工具参与正常审核。它不控制 provider 连接，也不阻断 Bash 内的网络访问。
+`--cwd` 是文件工具的授权工作区，检查真实路径和符号链接，并保护 Kimi home。`--read-only` 只允许有限读取、查询和任务内状态工具，禁用 Bash、写入和 MCP 等副作用能力。默认关闭 WebSearch、FetchURL 与 MCP；`--allow-network` 允许这些工具参与正常审核。它不控制 provider 连接；Bash 网络还受系统沙箱约束，必须同时取得该标志和 `shell_allowed_domains` 域名许可。
 
-**这不是操作系统沙箱。** Bash 只做工作目录检查和模型权限审核；已获准 shell 的文件、进程及网络效果不由文件工具范围检查隔离。需要严格隔离时，由编排器在容器或受限账号中运行，并控制凭据和网络。不要将 `--cwd` 或 `--allow-network` 当成系统级边界。
+**Bash 及子进程默认且强制使用系统沙箱。** 工作区与临时目录以外不可写，已发现的指令、运行时配置及其真实目标继续受保护；缺少沙箱时拒绝命令。文件工具与 MCP 不在 shell 沙箱中，整个任务进程也未隔离为多租户服务。严格隔离仍由编排器提供，详见[沙箱配置](configuration.md#shell-系统沙箱031)。
 
 无人值守模式不消费 TUI 一次授权，也不生成伪人工批准。`AskUserQuestion` 返回 `blocked_input`，由父 session 决定后续输入。目标和定时调度由调用者持有；无头任务拒绝创建自主目标、定时任务和脱离运行的后台委派，取消仅清理本任务新建的后台任务。
 

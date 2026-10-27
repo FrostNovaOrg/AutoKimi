@@ -36,6 +36,8 @@ run(
     'run',
     'packages/agent-core-v2/test/agent/approvalReview',
     'packages/agent-core-v2/test/app/autokimiHeadless',
+    'packages/agent-core-v2/test/app/autokimiSandbox',
+    'packages/agent-core-v2/test/os/backends/node-local/hostFsService.test.ts',
     'apps/kimi-code/test/cli/headless.test.ts',
     'packages/agent-core-v2/test/agent/questionTools/tools/ask-user.test.ts',
     'packages/agent-core-v2/test/agent/toolApproval',

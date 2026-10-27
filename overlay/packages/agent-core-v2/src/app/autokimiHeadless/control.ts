@@ -156,6 +156,9 @@ export class AutoKimiHeadlessControl extends Disposable {
   get signal(): AbortSignal {
     return this.controller.signal;
   }
+  get allowNetwork(): boolean {
+    return this.options?.allowNetwork ?? false;
+  }
   get readOnly(): boolean {
     return this.options?.readOnly ?? false;
   }

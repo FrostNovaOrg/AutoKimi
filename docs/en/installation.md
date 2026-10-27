@@ -7,10 +7,10 @@
 Run in a terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/TRUSTED_COMMIT/install.sh | sh -s -- --revision TRUSTED_COMMIT
 ```
 
-The script supports macOS/Linux on ARM64 and x64; macOS ARM64 has been tested. Linux x64 has passed CI build, regression and isolated installation checks; terminal interaction still needs manual testing. It requires curl and tar, plus Git for source builds. It prefers a GitHub Release package matching the Node platform and architecture, verifies `SHA256SUMS`, then runs the included installer. If no package is published, it builds from `main`, with the Kimi version still pinned by the project's lock file. Download or checksum failures stop installation. Source builds download the exact pnpm version, without requiring a global installation.
+The script supports macOS/Linux on ARM64 and x64; macOS ARM64 has been tested. Linux x64 has passed CI build, regression and isolated installation checks; terminal interaction still needs manual testing. It requires curl and tar, plus Git for source builds. By default it builds an explicitly trusted AutoKimi commit with Kimi pinned by the lock file. Only `--version` requests a matching runtime package, verified against GitHub provenance bound to that commit in addition to `SHA256SUMS`. Download or checksum failures stop installation. Source builds download the exact pnpm version, without requiring a global installation.
 
 If Node.js ≥24.15.0 is unavailable, the script verifies an official Node package checksum and installs it under `<home>/autokimi/tools/`, leaving system Node unchanged. The home directory is selected from `AUTOKIMI_HOME`, `KIMI_CODE_HOME`, then `~/.kimi-code`; `--home` takes precedence. The script prints the launch path and required PATH command without editing shell configuration. Keep the selected Node path in place.
 
@@ -18,8 +18,8 @@ From a local checkout, these installation options are available:
 
 ```sh
 sh install.sh --source
-sh install.sh --version v0.3.0
-sh install.sh --package /path/to/autokimi-v0.3.0-darwin-arm64.tar.gz --home /path/to/kimi-home
+sh install.sh --version v0.3.1 --revision TRUSTED_COMMIT
+sh install.sh --package /path/to/autokimi-v0.3.1-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
 sh install.sh --timeout-ms 90000
 ```
 
@@ -117,3 +117,13 @@ Older launchers cannot acquire this update mechanism themselves. Rebuild and rei
 Confirm `~/.kimi-code/bin/autokimi` contains the `# autokimi local launcher` marker before removing that script and `~/.kimi-code/autokimi/`. Substitute your custom `--home` if applicable. Preserve official `kimi`, login data and sessions.
 
 Before removal, `/auto-review off` can disable the review setting in shared configuration; set your preferred default permission mode separately. Do not delete the whole `~/.kimi-code` directory.
+
+## Installation trust chain (0.3.1)
+
+The recommended command pins the installer’s full commit and passes the same commit to `--revision`. It downloads bootstrap from that commit, verifies an embedded SHA-256, then executes it. The four platform digests for standalone Node 24.15.0 are embedded too; same-origin dynamic checksums are no longer the trust root. Obtain the initial script and commit from a trusted source. Pinning does not establish that code is bug-free.
+
+Default installation builds that exact AutoKimi commit, without following main or latest. In a trusted local Git checkout, `sh install.sh --source` uses current HEAD; build uncommitted development changes through the development workflow. A runtime requested with `--version` also needs the exact `--revision` used to build it. GitHub CLI verifies Sigstore provenance bound to the repository, `.github/workflows/release.yml`, source commit, signer-workflow commit and GitHub-hosted runner. Unsigned packages, mismatched provenance and verification failures are not extracted or executed. Without gh, use explicit `--source`.
+
+Local archives may instead use `--sha256` from an independently trusted channel. SHA256SUMS downloaded beside an archive is not independent trust. It remains a transport-integrity check and cannot authorize execution by itself. The manual release workflow produces tested, attested Actions artifacts without creating a Release. This remediation does not publish new binary assets.
+
+Linux Bash also needs `/usr/bin/bwrap`, `/usr/bin/socat`, `/usr/bin/rg` and available user namespaces/seccomp. Missing capabilities leave file tools usable but refuse shell startup. See [configuration](configuration.md#shell-os-sandbox-031) for policy and trusted external-container compatibility.

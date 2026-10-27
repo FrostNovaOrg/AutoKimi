@@ -1,0 +1,49 @@
+name: Build attested runtime packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes bubblewrap socat ripgrep
+      - run: npm install --global pnpm@10.33.0
+      - run: npm test && npm run check
+      - run: npm run build
+      - run: npm run test:upstream
+      - run: npm run test:install
+      - run: npm run test:headless
+      - run: npm run package:release
+      - id: attest
+        uses: actions/attest@b60c2628ab941b449db82e38ba8d500980ce8a54
+        with:
+          subject-path: .artifacts/release/*.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: autokimi-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            .artifacts/release/*.tar.gz
+            .artifacts/release/SHA256SUMS
+            ${{ steps.attest.outputs.bundle-path }}
+          retention-days: 14
