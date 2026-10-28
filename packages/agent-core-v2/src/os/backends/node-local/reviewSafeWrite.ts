@@ -1,4 +1,5 @@
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { writeReviewedFile } from './reviewFileAccess';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, realpath, rename, rm } from 'node:fs/promises';
@@ -9,6 +10,7 @@ export async function reviewSafeWrite(
   data: string | Uint8Array,
   append = false,
 ): Promise<void> {
+  if (await writeReviewedFile(path, data, append)) return;
   let target: string;
   try {
     target = await realpath(path);

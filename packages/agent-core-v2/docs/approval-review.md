@@ -9,8 +9,10 @@ Approval review is a fourth permission mode implemented in the engine. The CLI, 
 ```mermaid
 flowchart TD
     Tool[Resolved tool call] --> Headless[Active run restrictions]
-    Headless --> Policy[Native permission policies]
-    Policy -->|deny| Denied[Tool denied]
+    Headless --> Guard[Review file protection and identity checks]
+    Guard -->|protected or changed target in review| Denied[Tool denied]
+    Guard -->|allowed or another mode| Policy[Native permission policies]
+    Policy -->|deny| Denied
     Policy -->|approve| Run[Execute tool]
     Policy -->|ask in review mode| Review[Independent model review]
     Review -->|allow and audit recorded| Run
@@ -18,11 +20,13 @@ flowchart TD
     Policy -->|ask in other modes| Existing[Existing approval handling]
 ```
 
-The native policy order remains authoritative: configured denials, session grants, configured ask/allow rules, sensitive paths, and ordinary automatic approvals retain their precedence. Review replaces an approval request, so an ordinary write inside a Git worktree can still be approved by the existing policy without a reviewer request. An active controlled headless run additionally sends automatically approved tools outside its safe-tool set through review.
+In review mode, file protection runs before every native policy, including configured allows, session grants, and automatic Git-worktree writes. Writes to `AGENTS.md`, `CLAUDE.md`, `KIMI.md`, and `.agents/` are denied; ordinary reads of these workspace instructions remain available. Access to `.kimi-code/` and the runtime home is protected. Both the requested path and its resolved destination are checked, including missing paths and directory aliases. Document contents and replacement strings are not interpreted as access paths.
+
+The remaining native policy order stays authoritative: configured denials, session grants, configured ask/allow rules, sensitive paths, and ordinary automatic approvals retain their precedence. Review replaces an approval request, so an ordinary write inside a Git worktree can still be approved by the existing policy without a reviewer request. An active controlled headless run additionally sends automatically approved tools outside its safe-tool set through review.
 
 The reviewer consumes a bounded evidence envelope. Human requests and verified interaction records carry authorization; tool output, assistant text, hooks, delegation, and summaries remain untrusted evidence. A configurable fast review can escalate to a full review, and neither stage can approve a configured denial. Model/provider configuration uses the normal catalog and credentials.
 
-Before returning an approval, the service verifies that the permission revision, relevant rules, action fingerprint, and evidence are still current and records the decision in the session's `approval-review.jsonl`. Invalid output, cancellation, unavailable infrastructure, and audit failures cannot grant permission. Infrastructure failures use a cooldown independently from repeated safety denials.
+Before returning an approval, the service verifies that the permission revision, relevant rules, action fingerprint, evidence, file identities, and ancestor directory identities are still current and records the decision in the session's `approval-review.jsonl`. The executor checks file identities again immediately before execution. A changed target requires resolving a new action. Invalid output, cancellation, unavailable infrastructure, and audit failures cannot grant permission. Infrastructure failures use a cooldown independently from repeated safety denials.
 
 ## Human interactions
 
@@ -62,8 +66,12 @@ Reviewed Bash executes through `IShellSandbox` using the pinned sandbox runtime.
 
 The CLI's native packaging extracts sandbox resources and preserves executable permissions. A resolver supplied by the CLI identifies the extracted package root; ordinary Node installations use package resolution. The sandbox runtime is loaded lazily when needed.
 
-File edits use guarded atomic writes, rejecting hard-linked destinations and special files. Review audits and headless journals validate their file type and ownership before append. These checks also apply when a permission policy has already approved the action.
+Review-mode file tools carry their approved file snapshot through the executor using an asynchronous execution scope. Existing files are checked against their device, inode, link count, and metadata, then written through that same open descriptor. These writes preserve the inode and are not atomic replacements. A late symlink or parent-path replacement cannot redirect the descriptor to another file.
+
+On macOS and Linux, new files and missing parent directories use directory identities pinned by open descriptors. Creation installs a complete temporary file exclusively, without overwriting a destination introduced concurrently. macOS uses volume/inode directory paths; Linux uses `/proc/self/fd`. If identity-based directory access is unavailable, creation fails closed. Windows review currently supports existing-file writes but denies new-file and directory creation. Other permission modes retain their existing file behavior.
+
+File writes reject hard-linked destinations and special files in every permission mode. Review audits and headless journals validate their file type and ownership before append. File protection and identity binding also apply when a native permission policy directly approved the action.
 
 ## Verification
 
-Engine tests cover review evidence, grants, rule precedence, cancellation, audit failures, and budgets. SDK, transport, ACP, TUI, and VS Code tests cover mode selection and session compatibility. `scripts/smoke-reviewed-headless.mjs` runs the built npm CLI or native binary against a local deterministic model fixture and the actual operating-system sandbox, including print review, progress, stop, resume, crash recovery, and filesystem/network containment. CI runs the same smoke test on Linux for both distribution forms.
+Engine tests cover review evidence, grants, rule precedence, cancellation, audit failures, budgets, protected-file policy bypasses, document-content false positives, and deterministic file/parent replacement races through actual writes. SDK, transport, ACP, TUI, and VS Code tests cover mode selection and session compatibility. `scripts/smoke-reviewed-headless.mjs` runs the built npm CLI or native binary against a local deterministic model fixture and the actual operating-system sandbox, including protected Git-worktree writes/edits, a target changed during model review, print review, progress, stop, resume, crash recovery, and filesystem/network containment. CI runs the same smoke test on Linux for both distribution forms.

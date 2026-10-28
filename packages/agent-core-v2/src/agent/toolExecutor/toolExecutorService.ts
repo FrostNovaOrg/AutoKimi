@@ -1,4 +1,5 @@
 import { IHeadlessRun } from '#/app/headlessRun/control';
+import { runWithReviewedFileAccess } from '#/os/backends/node-local/reviewFileAccess';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -526,7 +527,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     let rawResult: ExecutableToolResult;
     try {
-      const executePromise = execution.execute({
+      const executePromise = runWithReviewedFileAccess(execution, () => execution.execute({
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         trace: options.trace,
@@ -537,7 +538,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           if (signal.aborted) return;
           this.dispatchToolProgress(call, update, options);
         },
-      });
+      }));
       rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
     } catch (error) {
       const aborted = isAbortError(error) || signal.aborted;

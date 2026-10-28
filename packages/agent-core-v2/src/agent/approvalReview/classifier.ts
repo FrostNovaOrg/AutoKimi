@@ -511,8 +511,8 @@ export function reviewEvidence(input: {
     operation: string;
     realPath?: string;
     links?: number;
-    device?: number;
-    inode?: number;
+    device?: number | string;
+    inode?: number | string;
   }[];
   oneTimeApproval?: { toolCallId: string; fingerprint: string };
   humanApprovals?: readonly VerifiedHumanApproval[];

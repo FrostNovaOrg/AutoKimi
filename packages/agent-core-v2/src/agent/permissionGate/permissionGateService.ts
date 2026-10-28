@@ -16,6 +16,13 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  prepareReviewedFileAccess,
+  protectedReviewedFileAccess,
+  PROTECTED_REVIEW_FILE_MESSAGE,
+} from '#/os/backends/node-local/reviewFileAccess';
 
 import { IAgentPermissionGate } from './permissionGate';
 
@@ -29,6 +36,8 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IFlagService private readonly flags: IFlagService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @ISessionContext private readonly session: ISessionContext,
     @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
@@ -50,6 +59,11 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     const blocked = this.headless?.toolPolicy(event);
     if (blocked !== undefined) {
       event.veto({ output: blocked, isError: true });
+      return;
+    }
+    const fileDenied = this.checkReviewFiles(event);
+    if (fileDenied !== undefined) {
+      event.veto({ output: fileDenied, isError: true });
       return;
     }
     const evaluation = await this.policyService.evaluate(event);
@@ -87,6 +101,36 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     return this.headless?.active === true && !HEADLESS_SAFE_TOOLS.has(context.toolCall.name);
   }
 
+  private checkReviewFiles(
+    context: ResolvedToolExecutionHookContext,
+  ): string | undefined {
+    if (this.modeService.mode !== 'review') return undefined;
+    let message: string | undefined;
+    try {
+      const access = prepareReviewedFileAccess(
+        context.execution,
+        context.execution.accesses?.flatMap((entry) =>
+          entry.kind === 'file' ? [entry] : [],
+        ) ?? [],
+        this.session.cwd,
+      );
+      if (protectedReviewedFileAccess(access, this.bootstrap.homeDir))
+        message = PROTECTED_REVIEW_FILE_MESSAGE;
+    } catch {
+      message =
+        'Reviewed file access changed or could not be verified; resolve the action again for fresh authorization.';
+    }
+    if (message !== undefined) {
+      this.headless?.reportDenial(
+        context.toolCall.id,
+        context.toolCall.name,
+        message,
+      );
+      this.headless?.review(true, false);
+    }
+    return message;
+  }
+
   async authorize(
     context: ResolvedToolExecutionHookContext,
   ): Promise<BeforeExecuteDecision | undefined> {
@@ -94,6 +138,8 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
       return { veto: { output: 'Auto Review is unavailable; this action was denied.', isError: true, stopTurn: true } };
     const blocked = this.headless?.toolPolicy(context);
     if (blocked !== undefined) return { veto: { output: blocked, isError: true } };
+    const fileDenied = this.checkReviewFiles(context);
+    if (fileDenied !== undefined) return { veto: { output: fileDenied, isError: true } };
     const evaluation = await this.policyService.evaluate(context);
     if (evaluation === undefined) return undefined;
     this.telemetry.track2('permission_policy_decision', {

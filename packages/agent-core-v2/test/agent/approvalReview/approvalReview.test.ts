@@ -8,7 +8,10 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
+  symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1279,9 +1282,15 @@ describe('AgentApprovalReviewService', () => {
       recentDenials: 1,
     });
     t.state.messages = [user('Update settings')];
+    const protectedContext = t.context();
+    const protectedPath = join(t.directory, '.kimi-code', 'config.toml');
     expect(
       await t.service.review(
-        t.context('echo yes > .kimi-code/config.toml'),
+        { ...protectedContext,
+          args: { path: protectedPath, content: 'replacement' },
+          toolCall: { ...protectedContext.toolCall, name: 'Write' },
+          execution: { ...protectedContext.execution, accesses: [{ kind: 'file', operation: 'write', path: protectedPath }] },
+        },
         { kind: 'ask' },
         'fallback-ask',
       ),
@@ -1290,6 +1299,54 @@ describe('AgentApprovalReviewService', () => {
       message: expect.stringContaining('protected'),
     });
     expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it.each(['Write', 'Edit'])('reviews ordinary %s content mentioning protected names', async (tool) => {
+    const t = await setup();
+    const path = join(t.directory, 'notes.txt');
+    await writeFile(path, 'ordinary note');
+    const content = '请参考 AGENTS.md、CLAUDE.md、KIMI.md、.agents/skills/demo 和 .kimi-code/config.toml；KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW 只是文档正文。';
+    const args = tool === 'Write' ? { path, content } : { path, old_string: 'ordinary note', new_string: content };
+    const context = t.context();
+    const result = await t.service.review({ ...context, args,
+      toolCall: { ...context.toolCall, name: tool, arguments: JSON.stringify(args) },
+      execution: { ...context.execution, accesses: [{ kind: 'file', operation: 'write', path }] },
+    }, { kind: 'ask' }, 'fallback-ask');
+    expect(result).toEqual({ kind: 'approve' });
+    expect(t.generate).toHaveBeenCalledOnce();
+  });
+
+  it.each(['symlink', 'inode', 'parent'])('rejects a changed %s target during model review', async (change) => {
+    const t = await setup();
+    const parent = join(t.directory, 'ordinary');
+    const target = join(parent, 'notes.txt');
+    const protectedFile = join(t.directory, 'AGENTS.md');
+    const alias = join(t.directory, 'notes-link.txt');
+    await mkdir(parent);
+    await writeFile(target, 'ordinary');
+    await writeFile(protectedFile, 'preserve');
+    await symlink(target, alias);
+    t.generate.mockImplementationOnce(async function* () {
+      if (change === 'symlink') {
+        await unlink(alias);
+        await symlink(protectedFile, alias);
+      } else if (change === 'inode') {
+        await rename(target, target + '.old');
+        await writeFile(target, 'replacement inode');
+      } else {
+        await rename(parent, parent + '.old');
+        await mkdir(parent);
+        await writeFile(target, 'replacement parent');
+      }
+      yield { type: 'finish', message: createAssistantMessage([{ type: 'text', text: allow }]), providerFinishReason: 'completed' };
+    });
+    const context = t.context();
+    const result = await t.service.review({ ...context, args: { path: alias, content: 'replacement' },
+      toolCall: { ...context.toolCall, name: 'Write' },
+      execution: { ...context.execution, accesses: [{ kind: 'file', operation: 'write', path: alias }] },
+    }, { kind: 'ask' }, 'fallback-ask');
+    expect(result).toMatchObject({ kind: 'deny', message: expect.stringContaining('changed') });
+    expect(await readFile(protectedFile, 'utf8')).toBe('preserve');
   });
 
   it('classifies malformed reviewer responses as infrastructure failures', async () => {

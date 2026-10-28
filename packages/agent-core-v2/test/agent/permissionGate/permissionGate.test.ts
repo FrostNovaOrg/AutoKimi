@@ -1,4 +1,10 @@
 import { IFlagService } from '#/app/flag/flag';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { ToolAccesses } from '#/tool/toolContract';
 import { stubFlag } from '../../app/flag/stubs';
 import { HeadlessRunControl, IHeadlessRun } from '#/app/headlessRun/control';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +69,7 @@ describe('AgentPermissionGate', () => {
   let policyResult: PermissionPolicyEvaluation | undefined;
   let records: TelemetryRecord[];
   let executorEvents: ToolExecutorEventStubs;
+  const roots: string[] = [];
   let resolvePermissionResolution: ReturnType<
     typeof vi.fn<IAgentToolApprovalService['resolvePermissionResolution']>
   >;
@@ -88,6 +95,8 @@ describe('AgentPermissionGate', () => {
     };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.definePartialInstance(IBootstrapService, { homeDir: '/tmp/kimi-review-home' });
+        reg.definePartialInstance(ISessionContext, { cwd: process.cwd() });
         reg.defineInstance(IFlagService, stubFlag(false));
         reg.define(IHeadlessRun, HeadlessRunControl);
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
@@ -104,8 +113,9 @@ describe('AgentPermissionGate', () => {
       strict: true,
     });
   });
-  afterEach(() => {
+  afterEach(async () => {
     disposables.dispose();
+    for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
   });
 
   function make(): IAgentPermissionGate {
@@ -144,6 +154,56 @@ describe('AgentPermissionGate', () => {
     expect(await executorEvents.fireBeforeExecute(makeContext('Write'))).toMatchObject({ veto: { isError: true, stopTurn: true } });
     expect(requestToolApproval).not.toHaveBeenCalled();
     expect(resolvePermissionResolution).not.toHaveBeenCalled();
+  });
+
+  it.each(['git-cwd-write-approve', 'user-configured-allow', 'session-approval-history'])(
+    'protects instruction and config files before %s can approve a Write or Edit', async (policyName) => {
+      const root = await mkdtemp(join(tmpdir(), 'kimi-gate-protection-'));
+      roots.push(root);
+      mode = 'review';
+      ix.stub(IFlagService, stubFlag(true));
+      policyResult = { policyName, result: { kind: 'approve' } };
+      const policy = ix.get(IAgentPermissionPolicyService);
+      const evaluate = vi.spyOn(policy, 'evaluate');
+      const gate = make();
+      for (const name of ['AGENTS.md', 'CLAUDE.md', 'KIMI.md', '.agents/skills/demo/SKILL.md', '.kimi-code/config.toml']) {
+        const path = join(root, name);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, 'preserve');
+        for (const tool of ['Write', 'Edit']) {
+          const context = makeContext(tool, { path, content: 'replacement' });
+          const execution = { ...context.execution, accesses: ToolAccesses.writeFile(path) };
+          for (const decision of [
+            await gate.authorize({ ...context, execution }),
+            await executorEvents.fireBeforeExecute({ ...context, execution }),
+          ]) expect(decision?.veto).toMatchObject({ isError: true, output: expect.stringContaining('protected') });
+        }
+        const alias = join(root, 'ordinary-alias');
+        await symlink(path, alias);
+        const context = makeContext('Write', { path: alias, content: 'replacement' });
+        expect(await gate.authorize({ ...context, execution: { ...context.execution, accesses: ToolAccesses.writeFile(alias) } }))
+          .toMatchObject({ veto: { isError: true } });
+        await rm(alias);
+        expect(await readFile(path, 'utf8')).toBe('preserve');
+      }
+      expect(evaluate).not.toHaveBeenCalled();
+      expect(requestToolApproval).not.toHaveBeenCalled();
+      expect(resolvePermissionResolution).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps ordinary instruction reads available in review mode', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kimi-gate-read-'));
+    roots.push(root);
+    const path = join(root, 'AGENTS.md');
+    await writeFile(path, 'instructions');
+    mode = 'review';
+    ix.stub(IFlagService, stubFlag(true));
+    policyResult = { policyName: 'read-only-approve', result: { kind: 'approve' } };
+    const context = makeContext('Read', { path });
+    expect(await make().authorize({ ...context, execution: { ...context.execution, accesses: [{ kind: 'file', operation: 'read', path }] } }))
+      .toBeUndefined();
+    expect(requestToolApproval).not.toHaveBeenCalled();
   });
 
   it('passes an approve result with executionMetadata straight through', async () => {

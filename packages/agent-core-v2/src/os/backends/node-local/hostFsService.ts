@@ -1,4 +1,5 @@
 import { reviewSafeWrite } from './reviewSafeWrite';
+import { createReviewedParent } from './reviewFileAccess';
 import { createReadStream } from 'node:fs';
 import {
   lstat,
@@ -184,6 +185,7 @@ export class HostFileSystem implements IHostFileSystem {
 
   async mkdir(path: string, options?: { readonly recursive?: boolean }): Promise<void> {
     try {
+      if (createReviewedParent(path)) return;
       await mkdir(path, { recursive: options?.recursive ?? false });
     } catch (error) {
       throw toHostFsError(error, { path, op: 'mkdir' });

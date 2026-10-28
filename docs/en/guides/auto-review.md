@@ -21,7 +21,11 @@ KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW=1 kimi --permission-mode review
 
 ## Review results
 
-Native permission rules run first. Existing direct approvals remain direct approvals in interactive sessions, explicit deny rules remain authoritative, and explicit ask rules cannot be approved automatically. Other pending tool approvals go to the reviewer. A fast review can approve an action; otherwise a separate full review evaluates the same evidence. Uncertainty, unavailable evidence, model errors, timeout, or an unavailable audit log deny execution.
+Auto Review checks protected file paths before native permission rules. It denies modifications to `AGENTS.md`, `CLAUDE.md`, `KIMI.md`, and `.agents/`, and protects `.kimi-code/` and the Kimi runtime home, including access through aliases. Ordinary reads of workspace instructions remain available. Naming these files in an ordinary document does not count as accessing them.
+
+After these checks, existing direct approvals remain direct approvals in interactive sessions, explicit deny rules remain authoritative, and explicit ask rules cannot be approved automatically. Other pending tool approvals go to the reviewer. A fast review can approve an action; otherwise a separate full review evaluates the same evidence. Uncertainty, unavailable evidence, model errors, timeout, or an unavailable audit log deny execution.
+
+File actions are bound to the file and parent-directory identities checked before approval. If another process changes the target during review or before execution, the action is denied and must be resolved again. Writes to existing files use the validated open file directly, so changing a symlink cannot redirect a pending write. These writes preserve the existing file identity and are not atomic replacements.
 
 Goals start directly in Auto Review, whether created by the agent or through `/goal`, in both interactive and non-interactive sessions. Starting a goal retains Auto Review and does not authorize its later actions. Headless goal turns share the run's cumulative limits. Questions and plan review remain human interactions; a non-interactive invocation cannot approve them on your behalf. Repeated safety denials stop the turn; infrastructure failures use bounded retry and cooldown instead of consuming the safety-denial budget.
 
@@ -59,7 +63,7 @@ shell_allowed_domains = []
 
 Auto Review runs `Bash` and its descendants inside an operating-system sandbox on macOS or Linux. Ordinary permission modes retain their existing shell execution path. Reviewed shell execution requires the sandbox; disabling `shell_sandbox`, missing helpers, or an unsupported platform produces an error without running the command outside it.
 
-Linux needs `bubblewrap`, `socat`, and `ripgrep`, and a kernel/container policy that permits the sandbox. The native package includes the pinned seccomp helper. Windows can use review for other tools, but reviewed `Bash` is unavailable in this implementation.
+Linux needs `bubblewrap`, `socat`, and `ripgrep`, and a kernel/container policy that permits the sandbox. The native package includes the pinned seccomp helper. Windows can use review for other tools and existing-file writes, but reviewed `Bash`, new-file creation, and directory creation are unavailable in this implementation. File creation on macOS and Linux also requires the system to support access through a pinned directory identity; otherwise it is denied.
 
 The sandbox limits writes to the workspace and temporary storage, protects Kimi configuration and agent instructions, and denies access to common credential directories. Shell network access is denied unless domains are explicitly configured. A budgeted headless task also needs `--allow-network`. The shell sandbox does not contain file tools, MCP servers, or model requests; their permission checks remain separate. File writes reject hard-linked regular files in all permission modes.
 

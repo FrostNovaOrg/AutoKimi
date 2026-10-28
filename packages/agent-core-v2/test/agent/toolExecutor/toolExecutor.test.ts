@@ -1,6 +1,6 @@
 import { IHeadlessRun, HeadlessRunControl } from '#/app/headlessRun/control';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
@@ -50,6 +50,7 @@ import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { prepareReviewedFileAccess } from '#/os/backends/node-local/reviewFileAccess';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -993,6 +994,43 @@ describe('onBeforeExecuteTool veto semantics', () => {
 });
 
 describe('onWillExecuteTool', () => {
+  it('rejects a reviewed target changed between permission approval and execution', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-executor-review-'));
+    try {
+      const path = join(dir, 'notes.txt');
+      const protectedFile = join(dir, 'AGENTS.md');
+      const alias = join(dir, 'alias.txt');
+      await writeFile(path, 'ordinary');
+      await writeFile(protectedFile, 'preserve');
+      await symlink(path, alias);
+      const fs = new HostFileSystem();
+      const tool = new TestTool('Write', {
+        accesses: ToolAccesses.writeFile(alias),
+        execute: async () => {
+          await fs.writeText(alias, 'changed');
+          return { output: 'written' };
+        },
+      });
+      registry.register(tool);
+      executor.onBeforeExecuteTool((event) => {
+        prepareReviewedFileAccess(event.execution, [{ path: alias, operation: 'write' }], dir);
+      });
+      executor.onWillExecuteTool((event) => {
+        event.waitUntil((async () => {
+          await unlink(alias);
+          await symlink(protectedFile, alias);
+        })());
+      });
+      const results = await execute([toolCall('reviewed_write', 'Write', { path: alias, content: 'changed' })]);
+      expect(results).toEqual([expect.objectContaining({ isError: true, output: expect.stringContaining('changed') })]);
+      expect(await readFile(protectedFile, 'utf8')).toBe('preserve');
+      expect(await readFile(path, 'utf8')).toBe('ordinary');
+      expect(tool.calls).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('awaits registered waitUntil work before executing the tool', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);

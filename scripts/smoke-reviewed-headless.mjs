@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -37,6 +45,17 @@ let hold = true;
 let networkAttempts = 0;
 let shellToolResults;
 const probeToolResults = new Map();
+const fileToolResults = new Map();
+const protectedPaths = [
+  'AGENTS.md',
+  'CLAUDE.md',
+  'KIMI.md',
+  '.agents/skills/fixture/SKILL.md',
+  '.kimi-code/config.toml',
+];
+const printWorkspace = join(base, 'print-workspace');
+const retargetAlias = join(printWorkspace, 'retarget.txt');
+let retargeted = false;
 const activeRuns = new Set();
 const goalRequests = new Map();
 const completedGoals = new Set();
@@ -61,6 +80,19 @@ const server = createServer((request, response) => {
     const transcript = JSON.stringify(body.messages);
     const completedTools =
       body.messages?.filter((message) => message.role === 'tool').length ?? 0;
+    const fileCase = transcript.match(
+      /CASE_FILE_(?:PROTECTED_\d+_(?:WRITE|EDIT)|CONTENT|RETARGET)/,
+    )?.[0];
+    if (fileCase && completedTools > 0)
+      fileToolResults.set(
+        fileCase,
+        body.messages.filter((message) => message.role === 'tool'),
+      );
+    if (reviewer && fileCase === 'CASE_FILE_RETARGET' && !retargeted) {
+      retargeted = true;
+      await unlink(retargetAlias);
+      await symlink(join(base, 'AGENTS.md'), retargetAlias);
+    }
     if (transcript.includes('CASE_SHELL') && completedTools > 0)
       shellToolResults = body.messages.filter(
         (message) => message.role === 'tool',
@@ -130,6 +162,29 @@ const server = createServer((request, response) => {
               },
             };
           }
+        } else if (fileCase && completedTools === 0) {
+          const protectedCase = fileCase.match(/PROTECTED_(\d+)_(WRITE|EDIT)/);
+          const path = protectedCase
+            ? protectedPaths[Number(protectedCase[1])]
+            : fileCase === 'CASE_FILE_RETARGET'
+              ? 'retarget.txt'
+              : 'notes.txt';
+          tool =
+            protectedCase?.[2] === 'EDIT'
+              ? {
+                  name: 'Edit',
+                  args: { path, old_string: 'preserve', new_string: 'changed' },
+                }
+              : {
+                  name: 'Write',
+                  args: {
+                    path,
+                    content:
+                      fileCase === 'CASE_FILE_CONTENT'
+                        ? '请参考 AGENTS.md、CLAUDE.md、KIMI.md、.agents/skills 和 .kimi-code/config.toml'
+                        : 'changed',
+                  },
+                };
         } else if (transcript.includes('CASE_BUDGET') && completedTools < 2)
           tool = { name: 'Read', args: { path: 'input.txt' } };
         else if (transcript.includes('CASE_QUESTION') && completedTools === 0)
@@ -370,7 +425,7 @@ try {
   const schema = (await call(['runs', 'schema'])).events[0];
   assert.equal(schema.version, 1);
   assert.equal(schema.permissions.mode, 'review');
-  const printCwd = join(base, 'print-workspace');
+  const printCwd = printWorkspace;
   await mkdir(printCwd);
   const printReviews = reviews;
   const printed = await exec(
@@ -403,6 +458,56 @@ try {
     'fixture done',
   );
   await rm(join(printCwd, 'result.txt'));
+  const contentReviews = reviews;
+  await exec(
+    command,
+    [...prefix, '--permission-mode', 'review', '-p', 'CASE_FILE_CONTENT'],
+    { cwd: printCwd, env, timeout: 30000 },
+  );
+  assert.ok(reviews > contentReviews);
+  assert.match(
+    await readFile(join(printCwd, 'notes.txt'), 'utf8'),
+    /请参考 AGENTS.md/,
+  );
+  await writeFile(join(base, 'AGENTS.md'), 'preserve');
+  await symlink(join(printCwd, 'notes.txt'), retargetAlias);
+  await exec(
+    command,
+    [...prefix, '--permission-mode', 'review', '-p', 'CASE_FILE_RETARGET'],
+    { cwd: printCwd, env, timeout: 30000 },
+  );
+  assert.equal(retargeted, true);
+  assert.equal(await readFile(join(base, 'AGENTS.md'), 'utf8'), 'preserve');
+  assert.match(
+    await readFile(join(printCwd, 'notes.txt'), 'utf8'),
+    /请参考 AGENTS.md/,
+  );
+  assert.match(
+    JSON.stringify(fileToolResults.get('CASE_FILE_RETARGET')),
+    /changed/,
+  );
+  await exec('git', ['init', '-q', printCwd]);
+  for (const path of protectedPaths) {
+    await mkdir(dirname(join(printCwd, path)), { recursive: true });
+    await writeFile(join(printCwd, path), 'preserve');
+  }
+  const protectedReviews = reviews;
+  for (let index = 0; index < protectedPaths.length; index++) {
+    for (const tool of ['WRITE', 'EDIT']) {
+      const prompt = 'CASE_FILE_PROTECTED_' + index + '_' + tool;
+      await exec(
+        command,
+        [...prefix, '--permission-mode', 'review', '-p', prompt],
+        { cwd: printCwd, env, timeout: 30000 },
+      );
+      assert.match(JSON.stringify(fileToolResults.get(prompt)), /protected/);
+      assert.equal(
+        await readFile(join(printCwd, protectedPaths[index]), 'utf8'),
+        'preserve',
+      );
+    }
+  }
+  assert.equal(reviews, protectedReviews);
   const printGoal = await exec(
     command,
     [...prefix, '--permission-mode', 'review', '-p', 'CASE_GOAL_PRINT'],

@@ -1,13 +1,14 @@
 import { IHeadlessRun } from '#/app/headlessRun/control';
 import { randomUUID } from 'node:crypto';
-import {
-  constants,
-  readlinkSync,
-  realpathSync,
-  statSync,
-} from 'node:fs';
+import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join } from 'node:path';
+import {
+  prepareReviewedFileAccess,
+  protectedReviewedFileAccess,
+  reviewedFileAccessCurrent,
+  PROTECTED_REVIEW_FILE_MESSAGE,
+} from '#/os/backends/node-local/reviewFileAccess';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { abortable, createDeadlineAbortSignal } from '#/_base/utils/abort';
 import {
@@ -237,26 +238,24 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
           args: context.args,
           cwd: this.session.cwd,
         };
-        const fileAccesses = context.execution.accesses?.flatMap((access) => {
-          if (access.kind !== 'file') return [];
-          try {
-            const path = realpathSync(resolve(this.session.cwd, access.path));
-            const file = statSync(path);
-            return [
-              {
-                path: access.path,
-                operation: access.operation,
-                realPath: path,
-                links: file.nlink,
-                device: file.dev,
-                inode: file.ino,
-              },
-            ];
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-            return [{ path: access.path, operation: access.operation }];
-          }
-        });
+        const access = prepareReviewedFileAccess(
+          context.execution,
+          context.execution.accesses?.flatMap((entry) =>
+            entry.kind === 'file' ? [entry] : [],
+          ) ?? [],
+          this.session.cwd,
+        );
+        const fileAccesses = access.targets.map((target) => ({
+          path: target.path,
+          operation: target.operation,
+          realPath: target.realPath,
+          links:
+            target.identity === undefined
+              ? undefined
+              : Number(target.identity.links),
+          device: target.identity?.device,
+          inode: target.identity?.inode,
+        }));
         const evidence = reviewEvidence({
           fileAccesses,
           userRequests: initialAuthorization.requests,
@@ -289,6 +288,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
                 cwd: this.session.cwd,
               }) &&
             rules === evidenceFingerprint(permissionRules()) &&
+            reviewedFileAccessCurrent(context.execution) &&
             this.isEnabled() &&
             this.mode.revision === permissionRevision &&
             JSON.stringify(settings) === JSON.stringify(currentSettings.data) &&
@@ -649,10 +649,22 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       this.failures = 0;
       this.retryAfter = 0;
     }
-    if (this.protectedAction(context))
-      return rejectedReview(
-        'This action accesses protected agent instructions or reviewer configuration and cannot be automatically authorized.',
+    try {
+      const access = prepareReviewedFileAccess(
+        context.execution,
+        context.execution.accesses?.flatMap((entry) =>
+          entry.kind === 'file' ? [entry] : [],
+        ) ?? [],
+        this.session.cwd,
       );
+      if (protectedReviewedFileAccess(access, this.bootstrap.homeDir))
+        return rejectedReview(PROTECTED_REVIEW_FILE_MESSAGE);
+    } catch {
+      return rejectedReview(
+        'Reviewed file access changed or could not be verified; resolve the action again for fresh authorization.',
+        'evidence',
+      );
+    }
     return undefined;
   }
 
@@ -710,60 +722,6 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
     if (!finished || text.length > 8192)
       throw new Error('Invalid reviewer output');
     return text;
-  }
-
-  private protectedAction(context: ResolvedToolExecutionHookContext): boolean {
-    for (const access of context.execution.accesses ?? []) {
-      if (access.kind !== 'file' || access.operation === 'read') continue;
-      try {
-        const file = statSync(access.path);
-        if (file.isFile() && file.nlink !== 1) return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return true;
-      }
-    }
-    const protectedPath = (path: string): boolean => {
-      const matches = (candidate: string): boolean => {
-        const fromHome = relative(this.bootstrap.homeDir, candidate);
-        return (
-          (!isAbsolute(fromHome) &&
-            fromHome !== '..' &&
-            !fromHome.startsWith(
-              `..${process.platform === 'win32' ? '\\' : '/'}`,
-            )) ||
-          /(?:^|[/\\])(?:\.kimi-code|\.agents|AGENTS\.md|CLAUDE\.md|KIMI\.md)(?:[/\\]|$)/i.test(
-            candidate,
-          )
-        );
-      };
-      let current = resolve(this.session.cwd, path);
-      const seen = new Set<string>();
-      while (true) {
-        if (seen.has(current)) return true;
-        seen.add(current);
-        if (matches(current)) return true;
-        try {
-          return matches(realpathSync(current));
-        } catch {
-          try {
-            current = resolve(current, '..', readlinkSync(current));
-            continue;
-          } catch {}
-        }
-        const parent = resolve(current, '..');
-        if (parent === current) return false;
-        current = parent;
-      }
-    };
-    if (
-      context.execution.accesses?.some(
-        (access) => access.kind === 'file' && protectedPath(access.path),
-      )
-    )
-      return true;
-    return /(?:\.kimi-code|\.agents[/\\]|AGENTS\.md|CLAUDE\.md|KIMI\.md|KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW)/i.test(
-      JSON.stringify(context.args),
-    );
   }
 
   private progress(
