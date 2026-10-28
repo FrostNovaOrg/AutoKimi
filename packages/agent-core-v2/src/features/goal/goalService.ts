@@ -1136,6 +1136,7 @@ function createGoalEffectHandlers(runtime: AgentActorContext<GoalRuntimeState>) 
       if (
         event.toolCall.name !== 'CreateGoal' ||
         permissionMode.mode === 'auto' ||
+        permissionMode.mode === 'review' ||
         event.execution.display?.kind !== 'goal_start'
       ) return;
       event.waitUntil(async () => runtime.get(IAgentToolApprovalService).requestToolApproval(

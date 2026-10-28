@@ -26,7 +26,7 @@ Before returning an approval, the service verifies that the permission revision,
 
 ## Human interactions
 
-Plan acceptance and Goal start remain human decisions in an interactive session. Non-interactive review cannot use the older unattended acceptance fallback for these decisions. An `exec` run records required input and ends with a structured blocked status.
+Goals start automatically in review mode, whether created by the model or the TUI command, without changing the permission mode. Plan acceptance remains a human decision; non-interactive review cannot use an unattended acceptance fallback for it. An `exec` run records required input and ends with a structured blocked status.
 
 The TUI selects the mode through `/permission`. `/approval` manages status, reviewer model selection, and recent eligible denials. An exact retry grant requires a separate confirmation whose default is Cancel. It binds a single action's tool, arguments, working directory, session, agent, evidence, and permission revision; the retry still passes through review. Headless runs do not accept interactive grant markers as authorization.
 
@@ -54,7 +54,7 @@ An older client can reject a new `review` value in a session journal or protocol
 
 Durable owner and session locks prevent concurrent writers. Idempotency keys bind a canonical request, and reusing a key with a different request fails. Lost workers become interrupted runs. If a tool was active at interruption, resume requires explicit acceptance of its inspected, uncertain effects rather than replaying it automatically.
 
-Controlled runs pin review mode and reject attempts to disable it. Tool restrictions protect credentials, Kimi home, run state, instruction files, read-only scope, and network policy before execution. Human input ends the attempt with a blocked status; a resumed attempt can supply the next instruction. Cancellation aborts the engine and terminates owned shell descendants.
+Controlled runs pin review mode and reject attempts to disable it. Goal bookkeeping is permitted even in read-only runs, and goal continuations share the same immutable run limits. The worker stays alive while a goal is active and restores paused goals on an explicit resume. Goal changes are observable as events and state snapshots. Cron scheduling remains caller-owned. Tool restrictions protect credentials, Kimi home, run state, instruction files, read-only scope, and network policy before execution. Human input ends the attempt with a blocked status; a resumed attempt can supply the next instruction. Cancellation aborts the engine and terminates owned shell descendants.
 
 ## Shell and file boundaries
 

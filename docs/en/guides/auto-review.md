@@ -23,7 +23,7 @@ KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW=1 kimi --permission-mode review
 
 Native permission rules run first. Existing direct approvals remain direct approvals in interactive sessions, explicit deny rules remain authoritative, and explicit ask rules cannot be approved automatically. Other pending tool approvals go to the reviewer. A fast review can approve an action; otherwise a separate full review evaluates the same evidence. Uncertainty, unavailable evidence, model errors, timeout, or an unavailable audit log deny execution.
 
-Questions, plan review, and goal-start confirmation remain human interactions. A non-interactive Auto Review invocation cannot approve these interactions on your behalf. Repeated safety denials stop the turn; infrastructure failures use bounded retry and cooldown instead of consuming the safety-denial budget.
+Goals start directly in Auto Review, whether created by the agent or through `/goal`, in both interactive and non-interactive sessions. Starting a goal retains Auto Review and does not authorize its later actions. Headless goal turns share the run's cumulative limits. Questions and plan review remain human interactions; a non-interactive invocation cannot approve them on your behalf. Repeated safety denials stop the turn; infrastructure failures use bounded retry and cooldown instead of consuming the safety-denial budget.
 
 Review requests have no tools. Authorization comes from genuine user requests and verified human responses. Assistant messages, summaries, hooks, tool output, imported context, and subagent instructions cannot grant permission.
 

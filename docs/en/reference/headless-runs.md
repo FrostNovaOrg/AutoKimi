@@ -34,7 +34,7 @@ kimi exec --resume <run-id>
 kimi exec --resume <run-id> --prompt "Continue after the requested clarification" --max-steps 60
 ```
 
-Resume retains the native session context, workspace restrictions, accumulated usage, and previous limits. An exhausted cap requires an explicit increase; restarting an attempt never resets usage. `--session <session-id>` starts a new run in an existing session and cannot be combined with `--resume`.
+Resume retains the native session context, workspace restrictions, accumulated usage, and previous limits, and reactivates a paused or blocked goal before submitting the next instruction. An exhausted cap requires an explicit increase; restarting an attempt never resets usage. `--session <session-id>` starts a new run in an existing session and cannot be combined with `--resume`.
 
 A live run cannot be resumed by another worker. After an unexpected worker exit, inspect any uncertain tool effects before passing `--accept-uncertain-effects`. Cancellation cleans up owned tools and background work before a run becomes resumable. If cleanup fails, it is reported as a failure rather than a clean stop.
 
@@ -42,7 +42,9 @@ A live run cannot be resumed by another worker. After an unexpected worker exit,
 
 Every run uses `review`, including when it resumes a session previously using Never Ask. Switching away stops the run. Side-effect tools are reviewed even if a normal interactive allow rule would have approved them directly; explicit deny rules remain authoritative.
 
-`--read-only` limits the task to the supported read-only tool set. Network tools and MCP are disabled unless `--allow-network` is present, and still require review. Shell execution requires the operating-system sandbox and configured allowed domains. Goals, scheduling, unattended one-time grants, and automatic replies to human questions are unavailable. A question produces `blocked_input`; resume with a new prompt after the caller has obtained the answer.
+`--read-only` limits workspace operations to the supported read-only tool set and permits internal goal bookkeeping. Goals start automatically and retain Auto Review; their continuation turns share the run's cumulative limits. Goal updates appear as `goal.updated` events and the latest snapshot is available in `state.goal`. A stopped or blocked goal produces a resumable non-success result with reason `goal_paused` or `goal_blocked`; raising an inner goal budget cannot raise the caller's run limits.
+
+Network tools and MCP are disabled unless `--allow-network` is present, and still require review. Shell execution requires the operating-system sandbox and configured allowed domains. Cron scheduling, unattended one-time grants, and automatic replies to human questions are unavailable. A question produces `blocked_input`; resume with a new prompt after the caller has obtained the answer.
 
 ## Events and exit codes
 
@@ -53,7 +55,7 @@ Every run uses `review`, including when it resumes a session previously using Ne
 | 0 | Completed |
 | 2 | Invalid request |
 | 3 | Retryable conflict |
-| 4 | Human input required or permission denials |
+| 4 | Human input required, permission denials, or a stopped goal |
 | 5 | Budget reached |
 | 6 | Cancelled |
 | 7 | Runtime failure |

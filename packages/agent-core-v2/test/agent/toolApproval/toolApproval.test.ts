@@ -350,7 +350,7 @@ describe('AgentToolApprovalService', () => {
     ])(
       'preserves the existing $tool business interaction',
       async ({ tool, origin, display }) => {
-        reviewEnabled = true;
+        reviewEnabled = tool !== 'CreateGoal';
         const callback = vi.fn(() => ({ kind: 'approve' as const }));
         const broker = useBroker(async () => ({ decision: 'approved' }));
         await make().requestToolApproval(
@@ -861,7 +861,6 @@ describe('AgentToolApprovalService', () => {
 
     it.each([
       ['ExitPlanMode', 'exit-plan-mode-review-ask', { kind: 'plan_review', plan: 'A plan.' }],
-      ['CreateGoal', 'goal-start-review-ask', { kind: 'goal_start', objective: 'A goal.', mode: 'review' }],
     ] as const)('keeps %s human-only in non-interactive Auto Review', async (tool, origin, display) => {
       mode = 'review';
       reviewEnabled = true;
@@ -875,6 +874,25 @@ describe('AgentToolApprovalService', () => {
       expect(result?.veto).toMatchObject({ isError: true, output: expect.stringContaining('nobody can approve') });
       expect(unattended).not.toHaveBeenCalled();
       expect(review).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('handles a Goal approval automatically in Auto Review with nonInteractive=%s', async (nonInteractive) => {
+      mode = 'review';
+      reviewEnabled = true;
+      hostArgs = { requestHeaders: {}, nonInteractive };
+      review.mockResolvedValueOnce({ kind: 'approve' });
+      const broker = useBroker(async () => ({ decision: 'approved' }));
+      const callback = vi.fn(() => ({ kind: 'approve' as const }));
+      const result = await make().requestToolApproval(
+        makeContext('CreateGoal', {}, { display: { kind: 'goal_start', objective: 'A goal.', mode: 'review' } }),
+        ask({ resolveApproval: callback }),
+        'goal-start-review-ask',
+      );
+      expect(result?.veto).toBeUndefined();
+      expect(broker).not.toHaveBeenCalled();
+      expect(callback).not.toHaveBeenCalled();
+      expect(review).toHaveBeenCalledOnce();
+      expect(mode).toBe('review');
     });
 
     it('denies at once without asking anyone when the host is non-interactive', async () => {

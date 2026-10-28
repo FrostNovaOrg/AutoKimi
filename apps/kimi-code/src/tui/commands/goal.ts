@@ -393,7 +393,6 @@ export async function createGoal(
 
   if (
     host.state.appState.permissionMode === 'manual' ||
-    host.state.appState.permissionMode === 'review' ||
     host.state.appState.permissionMode === 'yolo'
   ) {
     showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective, options);

@@ -766,6 +766,7 @@ describe('AgentGoalService goal-start review', () => {
     executorEvents = stubToolExecutorEvents();
     ctx = createTestAgent(
       permissionModeServices(mode),
+      { initialConfig: { experimental: { approval_review: true } } },
       agentService(IAgentToolApprovalService, approvalStub()),
       agentService(IAgentToolExecutorService, executorEvents.executor),
     );
@@ -818,14 +819,15 @@ describe('AgentGoalService goal-start review', () => {
     expect(ctx!.get(IAgentPermissionModeService).mode).toBe('yolo');
   });
 
-  it('does not review CreateGoal in auto mode', async () => {
-    await setup('auto');
+  it.each(['auto', 'review'] as const)('starts CreateGoal without a human interaction in %s mode', async (mode) => {
+    await setup(mode);
     const hookCtx = createGoalHookContext(goalStartDisplay);
 
     const decision = await executorEvents.fireBeforeExecute(hookCtx);
 
     expect(approvalCalls).toHaveLength(0);
     expect(decision).toBeUndefined();
+    expect(ctx!.get(IAgentPermissionModeService).mode).toBe(mode);
   });
 
   it('does not review CreateGoal without a goal_start display', async () => {

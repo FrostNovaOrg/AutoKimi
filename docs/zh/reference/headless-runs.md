@@ -34,7 +34,7 @@ kimi exec --resume <run-id>
 kimi exec --resume <run-id> --prompt "Continue after the requested clarification" --max-steps 60
 ```
 
-接续时保留原生会话上下文、工作区限制、累计用量和原有预算。预算已耗尽时必须显式提高上限；重启执行不会清零用量。`--session <session-id>` 在已有会话中创建新任务，不能与 `--resume` 同用。
+接续时保留原生会话上下文、工作区限制、累计用量和原有预算，并在提交下一条指令前重新激活已暂停或阻塞的目标。预算已耗尽时必须显式提高上限；重启执行不会清零用量。`--session <session-id>` 在已有会话中创建新任务，不能与 `--resume` 同用。
 
 任务仍活跃时，其他 worker 不能接续。worker 意外退出后，须先检查尚不确定的工具副作用，再传入 `--accept-uncertain-effects`。取消会清理本次任务拥有的工具与后台工作，清理后才允许接续。清理失败会报告为失败，不会当作正常停止。
 
@@ -42,7 +42,9 @@ kimi exec --resume <run-id> --prompt "Continue after the requested clarification
 
 所有任务均使用 `review`，恢复原本处于 Never Ask 的会话时也一样。运行中切换到其他模式会停止任务。带副作用的工具即使在普通交互会话中会被 allow 规则直接批准，也须经过审核；显式 deny 规则继续生效。
 
-`--read-only` 将任务限制在支持的只读工具集合。网络工具和 MCP 默认关闭，只有传入 `--allow-network` 后才可使用，且仍须审核。Shell 执行要求系统沙箱及已配置的允许域名。目标、定时调度、无人值守的一次授权和代答人工问题不可用。出现人工问题时返回 `blocked_input`；调用者取得答案后，可通过新提示词接续。
+`--read-only` 将工作区操作限制在支持的只读工具集合，同时允许内部目标状态管理。目标会自动开始并保持 Auto Review，后续轮次共享任务的累计预算。目标变化通过 `goal.updated` 事件报告，最新快照可在 `state.goal` 查询。目标暂停或阻塞时返回可接续的非成功结果，原因为 `goal_paused` 或 `goal_blocked`；提高目标内部预算不会提高调用者的任务限制。
+
+网络工具和 MCP 默认关闭，只有传入 `--allow-network` 后才可使用，且仍须审核。Shell 执行要求系统沙箱及已配置的允许域名。Cron 定时调度、无人值守的一次授权和代答人工问题不可用。出现人工问题时返回 `blocked_input`；调用者取得答案后，可通过新提示词接续。
 
 ## 事件与退出码
 
@@ -53,7 +55,7 @@ kimi exec --resume <run-id> --prompt "Continue after the requested clarification
 | 0 | 完成 |
 | 2 | 请求无效 |
 | 3 | 可重试冲突 |
-| 4 | 需要人工输入或存在权限拒绝 |
+| 4 | 需要人工输入、存在权限拒绝或目标已停止 |
 | 5 | 达到预算上限 |
 | 6 | 已取消 |
 | 7 | 运行失败 |

@@ -16,6 +16,9 @@ export const HEADLESS_SAFE_TOOLS = new Set([
   'TaskOutput',
   'WaitFor',
   'GetGoal',
+  'CreateGoal',
+  'UpdateGoal',
+  'SetGoalBudget',
   'TodoList',
   'SetTodoList',
   'AskUserQuestion',
@@ -220,7 +223,7 @@ export class HeadlessRunControl extends Disposable {
       this.reportDenial(context.toolCall.id, name, reason);
       return reason;
     };
-    if (['CreateGoal', 'CronCreate', 'CronUpdate'].includes(name))
+    if (['CronCreate', 'CronUpdate'].includes(name))
       return blocked('Headless autonomous scheduling is owned by the caller.');
     if (
       ['Bash', 'Agent', 'AgentSwarm', 'AskUserQuestion'].includes(name) &&

@@ -181,6 +181,17 @@ describe('host-owned headless envelope', () => {
     ).toContain('outside');
     expect(value.toolPolicy(context('WebSearch'))).toContain('network');
   });
+  it('allows goal bookkeeping in read-only runs while preserving caller limits and blocking cron scheduling', () => {
+    const settings = { ...options(), readOnly: true };
+    const value = control(settings);
+    for (const tool of ['CreateGoal', 'SetGoalBudget', 'UpdateGoal'])
+      expect(value.toolPolicy(context(tool))).toBeUndefined();
+    expect(value.toolPolicy(context('CronCreate'))).toContain('caller');
+    value.beforeStep();
+    value.beforeStep();
+    expect(() => value.beforeStep()).toThrow('step_budget');
+    expect(value.snapshot().usage.steps).toBe(2);
+  });
   it('rejects an existing symlink escaping the workspace', () => {
     const settings = options();
     const other = options().workDir;

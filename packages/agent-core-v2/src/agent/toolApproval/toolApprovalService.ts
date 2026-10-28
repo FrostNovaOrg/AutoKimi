@@ -141,12 +141,9 @@ export class AgentToolApprovalService
     }
     const interactiveReview = !this.headless?.active &&
       result.resolveApproval !== undefined &&
-      ((origin === 'exit-plan-mode-review-ask' &&
+      (origin === 'exit-plan-mode-review-ask' &&
         context.toolCall.name === 'ExitPlanMode' &&
-        context.execution.display?.kind === 'plan_review') ||
-        (origin === 'goal-start-review-ask' &&
-          context.toolCall.name === 'CreateGoal' &&
-          context.execution.display?.kind === 'goal_start'));
+        context.execution.display?.kind === 'plan_review');
     if (this.reviewer.isEnabled() && !interactiveReview) {
       let reviewed: ApprovalReviewResult;
       try {

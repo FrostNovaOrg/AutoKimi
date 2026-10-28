@@ -394,14 +394,11 @@ describe('handleGoalCommand', () => {
     }
   });
 
-  it('keeps Auto Review when the user confirms starting a goal', async () => {
+  it('starts an Auto Review goal directly without changing permission', async () => {
     const { host: reviewHost, session: s } = makeHost({ permissionMode: 'review' });
     await handleGoalCommand(reviewHost, 'Ship feature X');
-    expect(s.createGoal).not.toHaveBeenCalled();
-    const picker = mountedPicker(reviewHost);
-    expect(stripAnsi(picker.render(80).join('\n'))).toContain('Keep Auto Review and start');
-    picker.handleInput(ENTER);
-    await vi.waitFor(() => expect(s.createGoal).toHaveBeenCalled());
+    expect(s.createGoal).toHaveBeenCalledOnce();
+    expect(reviewHost.mountEditorReplacement).not.toHaveBeenCalled();
     expect(s.setPermission).not.toHaveBeenCalled();
     expect(reviewHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });

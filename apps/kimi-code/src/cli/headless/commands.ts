@@ -537,6 +537,11 @@ export function registerHeadlessCommands(
             sandbox_scope: 'Bash and descendant processes',
             network_tools_default: false,
           },
+          goals: {
+            start: 'automatic in review mode',
+            permission: 'review',
+            budget: 'shared cumulative run limits across goal turns and attempts',
+          },
           statuses: [
             'queued',
             'running',
@@ -553,6 +558,7 @@ export function registerHeadlessCommands(
             invalid_request: 2,
             retryable_conflict: 3,
             blocked_input_or_denials: 4,
+            stopped_goal: 4,
             budget: 5,
             cancelled: 6,
             failed: 7,

@@ -19,7 +19,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { HeadlessLimits, HeadlessUsage } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  GoalSnapshot,
+  HeadlessLimits,
+  HeadlessUsage,
+} from '@moonshot-ai/kimi-code-sdk';
 
 export class RunError extends Error {
   constructor(
@@ -60,6 +64,7 @@ export interface RunState {
   active_tools?: Array<{ id: string; name: string; agent_id?: string }>;
   final_text?: string;
   text_truncated?: boolean;
+  goal?: GoalSnapshot | null;
   input?: unknown;
   permission_denials?: Array<{
     tool_call_id: string;
@@ -86,7 +91,8 @@ export const terminal = (state: RunState): boolean =>
 export const exitCode = (state: RunState): number =>
   state.status === 'completed'
     ? 0
-    : ['blocked_input', 'completed_with_denials'].includes(state.status)
+    : ['blocked_input', 'completed_with_denials'].includes(state.status) ||
+        ['goal_blocked', 'goal_paused'].includes(state.reason ?? '')
       ? 4
       : state.reason?.endsWith('_budget') || state.reason === 'timeout'
         ? 5

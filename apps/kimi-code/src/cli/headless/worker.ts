@@ -4,6 +4,7 @@ import {
   type Session,
   type Event,
   type HeadlessState,
+  type GoalUpdatedEvent,
 } from '@moonshot-ai/kimi-code-sdk';
 import { createKimiCodeHostIdentity } from '../version';
 import { privateJson, RunError, RunStore } from './store';
@@ -284,6 +285,15 @@ export async function runWorker(
         pendingText += text;
         if (pendingText.length >= 256 || Date.now() - textEmittedAt >= 100)
           flushText();
+      } else if (event.type === 'goal.updated') {
+        const goal = event as GoalUpdatedEvent;
+        state = {
+          ...state,
+          goal:
+            goal.snapshot ??
+            (state.goal?.status === 'complete' ? state.goal : null),
+        };
+        emit('goal.updated', { goal: state.goal, change: goal.change });
       } else if (event.type === 'tool.call.started') {
         const tool = {
           id: String(value.toolCallId),
@@ -323,6 +333,12 @@ export async function runWorker(
         });
       }
     });
+    const restoredGoal = (await running(session.getGoal())).goal;
+    if (
+      state.attempt > 1 &&
+      (restoredGoal?.status === 'paused' || restoredGoal?.status === 'blocked')
+    )
+      await running(session.resumeGoal());
     await running(
       session.prompt(request.prompt, {
         promptId: store.id + ':' + state.attempt,
@@ -335,6 +351,15 @@ export async function runWorker(
           activeTurns.size === 0 &&
           Date.now() - lastActivity > 200
         ) {
+          const { goal } = await session!.getGoal();
+          if (goal?.status === 'active') {
+            await new Promise<void>((resolve) => setTimeout(resolve, 50));
+            continue;
+          }
+          if (goal?.status === 'blocked' || goal?.status === 'paused') {
+            stopReason = `goal_${goal.status}`;
+            return;
+          }
           const tasks = await session!.listBackgroundTasks({
             activeOnly: true,
           });
@@ -400,6 +425,8 @@ export async function runWorker(
         'timeout',
         'cancelled',
         'blocked_input',
+        'goal_blocked',
+        'goal_paused',
       ].includes(stopReason ?? '');
     state = {
       ...state,
@@ -429,6 +456,7 @@ export async function runWorker(
         reason: state.reason,
         resumable,
         final_text: state.final_text,
+        goal: state.goal,
         text_truncated: state.text_truncated,
         usage: state.usage,
         limits: state.limits,

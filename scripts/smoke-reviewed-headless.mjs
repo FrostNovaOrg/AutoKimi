@@ -38,6 +38,9 @@ let networkAttempts = 0;
 let shellToolResults;
 const probeToolResults = new Map();
 const activeRuns = new Set();
+const goalRequests = new Map();
+const completedGoals = new Set();
+let completeBudgetGoal = false;
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const server = createServer((request, response) => {
@@ -99,7 +102,35 @@ const server = createServer((request, response) => {
         });
       } else {
         let tool;
-        if (transcript.includes('CASE_BUDGET') && completedTools < 2)
+        const goalCase = transcript.match(
+          /CASE_GOAL_(PRINT|COMPLETE|BUDGET|BLOCKED)/,
+        )?.[0];
+        if (goalCase) {
+          const count = (goalRequests.get(goalCase) ?? 0) + 1;
+          goalRequests.set(goalCase, count);
+          if (count === 1)
+            tool = {
+              name: 'CreateGoal',
+              args: {
+                objective: goalCase + ' finish the requested fixture',
+                completionCriterion: 'The synthetic fixture is complete',
+              },
+            };
+          else if (
+            count >= 3 &&
+            (goalCase !== 'CASE_GOAL_BUDGET' || completeBudgetGoal) &&
+            !completedGoals.has(goalCase)
+          ) {
+            completedGoals.add(goalCase);
+            tool = {
+              name: 'UpdateGoal',
+              args: {
+                status:
+                  goalCase === 'CASE_GOAL_BLOCKED' ? 'blocked' : 'complete',
+              },
+            };
+          }
+        } else if (transcript.includes('CASE_BUDGET') && completedTools < 2)
           tool = { name: 'Read', args: { path: 'input.txt' } };
         else if (transcript.includes('CASE_QUESTION') && completedTools === 0)
           tool = {
@@ -372,6 +403,19 @@ try {
     'fixture done',
   );
   await rm(join(printCwd, 'result.txt'));
+  const printGoal = await exec(
+    command,
+    [...prefix, '--permission-mode', 'review', '-p', 'CASE_GOAL_PRINT'],
+    {
+      cwd: printCwd,
+      env,
+      timeout: 30000,
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+  assert.match(printGoal.stdout, /fixture done/);
+  assert.ok(completedGoals.has('CASE_GOAL_PRINT'));
+  assert.ok(goalRequests.get('CASE_GOAL_PRINT') >= 4);
   const defaultReviews = reviews;
   await exec(command, [...prefix, '-p', 'CASE_FINAL'], {
     cwd,
@@ -412,6 +456,74 @@ try {
     '--detach',
   ]);
   assert.equal(conflict.events[0].error.code, 'idempotency_conflict');
+
+  const goalRun = await call([
+    'exec',
+    '--prompt',
+    'CASE_GOAL_COMPLETE',
+    '--cwd',
+    cwd,
+    '--read-only',
+    '--timeout',
+    '15s',
+  ]);
+  assert.equal(goalRun.code, 0, JSON.stringify(goalRun));
+  assert.ok(
+    goalRun.events.filter((event) => event.type === 'turn.ended').length >= 2,
+  );
+  const goalState = await status(goalRun.events[0].run_id);
+  assert.equal(goalState.goal.status, 'complete');
+  assert.equal(goalState.usage.denials, 0);
+  assert.ok(goalState.usage.steps >= 4);
+
+  const blockedGoal = await call([
+    'exec',
+    '--prompt',
+    'CASE_GOAL_BLOCKED',
+    '--cwd',
+    cwd,
+    '--timeout',
+    '15s',
+  ]);
+  assert.equal(blockedGoal.code, 4, JSON.stringify(blockedGoal));
+  const blockedGoalState = await status(blockedGoal.events[0].run_id);
+  assert.equal(blockedGoalState.goal.status, 'blocked');
+  assert.equal(blockedGoalState.reason, 'goal_blocked');
+  assert.equal(blockedGoalState.resumable, true);
+
+  const limitedGoal = await call([
+    'exec',
+    '--prompt',
+    'CASE_GOAL_BUDGET',
+    '--cwd',
+    cwd,
+    '--max-steps',
+    '2',
+    '--timeout',
+    '15s',
+  ]);
+  assert.equal(limitedGoal.code, 5, JSON.stringify(limitedGoal));
+  const limitedGoalId = limitedGoal.events[0].run_id;
+  const limitedGoalState = await status(limitedGoalId);
+  assert.equal(limitedGoalState.usage.steps, 2);
+  assert.equal(limitedGoalState.reason, 'step_budget');
+  assert.equal(limitedGoalState.resumable, true);
+  const exhaustedGoal = await call(['exec', '--resume', limitedGoalId]);
+  assert.equal(exhaustedGoal.code, 2);
+  assert.equal(exhaustedGoal.events[0].error.code, 'budget_exhausted');
+  completeBudgetGoal = true;
+  const continuedGoal = await call([
+    'exec',
+    '--resume',
+    limitedGoalId,
+    '--max-steps',
+    '6',
+  ]);
+  assert.equal(continuedGoal.code, 0, JSON.stringify(continuedGoal));
+  const continuedGoalState = await status(limitedGoalId);
+  assert.equal(continuedGoalState.goal.status, 'complete');
+  assert.equal(continuedGoalState.attempt, 2);
+  assert.ok(continuedGoalState.usage.steps > limitedGoalState.usage.steps);
 
   const written = await call([
     'exec',
@@ -655,7 +767,7 @@ try {
   assert.equal(recovered.code, 0, JSON.stringify(recovered));
   assert.equal((await status(interrupted.run_id)).usage.requests, 2);
   console.log(
-    'Headless runtime smoke passed: reviewed writes, denial reporting, idempotency, cursors, inherited budgets, session resume, stop/child cleanup, blocked input, review enforcement, OS shell containment and crash recovery.',
+    'Headless runtime smoke passed: autonomous goals, goal continuation and budget resume, reviewed writes, denial reporting, idempotency, cursors, inherited budgets, session resume, stop/child cleanup, blocked input, review enforcement, OS shell containment and crash recovery.',
   );
 } finally {
   for (const id of activeRuns) {

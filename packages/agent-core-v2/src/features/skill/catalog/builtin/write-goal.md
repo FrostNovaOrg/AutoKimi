@@ -7,7 +7,7 @@ description: Help the user craft a well-specified `/goal` objective for goal mod
 
 Help the user turn a rough intention into a `/goal` objective that goal mode can pursue across many turns without supervision. A goal is not a task description — it is a completion contract. It says what must become *true*, how that truth is *proven*, where the work may and may not *reach*, and when to *stop and report* instead of grinding on.
 
-This skill is about authoring the objective text together with the user. Drafting and starting are separate steps: you settle the wording first, and only once the user has approved it do you start the goal by calling `CreateGoal`. The user still gets a final confirmation before it runs.
+This skill is about authoring the objective text together with the user. Drafting and starting are separate steps: you settle the wording first, and only once the user has approved it do you start the goal by calling `CreateGoal`. Auto Review and Never Ask start the goal directly; other modes may ask for a final confirmation.
 
 ## Ask, don't narrate
 
@@ -54,7 +54,7 @@ When a budget is genuinely useful — typically an open-ended or exploratory goa
 2. **Draft the goal.** Write a concrete objective in the user's language, covering as many parts of the contract above as the task warrants. Keep it readable — one or a few sentences for simple work, a short structured block (end state, checks, boundaries, stop rule) for larger work.
 3. **Show it and explain.** Present the draft in full and walk through the choices: what you picked as the finish line, what proves it, what you fenced off, when it stops. Point out anything still soft.
 4. **Revise together.** Take the user's edits and produce a new draft. When you are weighing alternative phrasings or scopes, offer them as an **AskUserQuestion** choice instead of describing them. Repeat until they are satisfied. If they want it looser than you would recommend, say so once, then write their version.
-5. **Start it.** Once the user approves the wording, start the goal by calling `CreateGoal` with the agreed objective (and a `completionCriterion` if you settled on one). Do not just print the text for the user to paste, and do not start before they have approved. Starting still surfaces a final confirmation, so the user keeps the last word on whether it runs.
+5. **Start it.** Once the user approves the wording, start the goal by calling `CreateGoal` with the agreed objective (and a `completionCriterion` if you settled on one). Do not just print the text for the user to paste, and do not start before they have approved. Auto Review and Never Ask start directly without another confirmation.
 
 ## A reusable shape
 

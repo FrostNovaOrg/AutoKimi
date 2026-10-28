@@ -13,6 +13,7 @@ import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoal
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import {
@@ -62,6 +63,18 @@ describe('goal tools', () => {
 
   afterEach(async () => {
     await ctx.dispose();
+  });
+
+  it('creates a model-requested goal in Auto Review without a confirmation display or permission change', async () => {
+    const permission = ctx.get(IAgentPermissionModeService);
+    permission.setMode('review');
+    const tool = new CreateGoalTool(goals, ctx.get(IAgentScopeContext), permission);
+    const execution = tool.resolveExecution({ objective: 'Finish the requested work' });
+    if (execution.isError === true) throw new Error('CreateGoal should be available');
+    expect(execution.display).toBeUndefined();
+    await execution.execute({ turnId: 0, toolCallId: 'create-reviewed-goal', signal });
+    expect(goals.getGoal().goal).toMatchObject({ objective: 'Finish the requested work', status: 'active' });
+    expect(permission.mode).toBe('review');
   });
 
   it('CreateGoal does not apply a delayed execution to a replacement goal', async () => {
