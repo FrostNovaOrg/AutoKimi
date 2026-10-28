@@ -156,7 +156,6 @@ describe('AgentPermissionModeService (wire-backed)', () => {
         type: 'permission.set_mode',
         agentId: 'test-agent',
         mode: 'auto',
-        version: 2,
         time: expect.any(Number),
       },
     ]);
@@ -170,7 +169,7 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     svc.setMode('review');
     expect(svc.revision).toBeGreaterThan(first);
     expect(svc.mode).toBe('review');
-    expect(await readRecords()).toContainEqual(expect.objectContaining({ type: 'permission.set_mode', mode: 'review', version: 2 }));
+    expect(await readRecords()).toContainEqual(expect.objectContaining({ type: 'permission.set_mode', mode: 'review' }));
     expect(await runRegisteredInjection()).toContain('Auto Review permission mode is active');
   });
 
@@ -192,7 +191,6 @@ describe('AgentPermissionModeService (wire-backed)', () => {
         type: 'permission.set_mode',
         agentId: 'test-agent',
         mode: 'manual',
-        version: 2,
         time: expect.any(Number),
       },
     ]);
