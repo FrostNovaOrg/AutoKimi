@@ -6,9 +6,11 @@
 
 `npm test` validates repository tools with temporary installation directories and synthetic configuration. `npm run check` checks source content and size. Runtime changes also require `npm run test:upstream`, covering review, permissions, SDK, TUI, targeted message flows, TypeScript and the no-comments guard. `npm run test:install` verifies a real runtime package in a synthetic home. `npm run test:headless` validates the installed headless protocol through a local mock model service, without paid model calls.
 
-## 0.4.0 local verification
+## 0.4.0 verification
 
-macOS ARM64 passed 82/82 repository tests, 1359/1359 runtime tests across 58 files, 12/12 message-flow cases, four TypeScript checks, the no-comments guard across 1789 files, a clean pinned rebuild, isolated real installation and headless smoke tests with private Node 24.15.0. Coverage includes all four native modes, immediate review cancellation and grant expiry on mode changes, Tower inheritance, human Goal confirmation, actual context after legacy import, unchanged source journals and preservation of the native permission default during installation. Disabling review through configuration or environment fails headless execution before model requests. Sandbox enforcement, cancellation, cumulative budgets and crash recovery passed. All model calls used local fixtures; no paid models were called.
+macOS ARM64 passed 82/82 repository tests, 1360/1360 runtime tests across 58 files, 12/12 message-flow cases, four TypeScript checks, the no-comments guard across 1789 files, a clean pinned rebuild, isolated real installation and headless smoke tests with private Node 24.15.0. Coverage includes all four native modes, immediate review cancellation and grant expiry on mode changes, Tower inheritance, human Goal confirmation, actual context after legacy import, unchanged source journals and preservation of the native permission default during installation. Disabling review through configuration or environment fails headless execution before model requests. Sandbox enforcement, cancellation, cumulative budgets and crash recovery passed. All model calls used local fixtures; no paid models were called.
+
+The [Ubuntu 24.04 integration run](https://github.com/FrostNovaOrg/AutoKimi/actions/runs/40633012256) at `1e9191a` passed clean builds, the private Node toolchain, real headless jobs, 1360 runtime regressions, type checks and isolated installation. Invalid AutoKimi permission defaults are rejected before task startup instead of inheriting native Never Ask.
 
 ## Recorded results
 
