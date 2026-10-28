@@ -7,7 +7,7 @@ flowchart TD
   A[Tool request] --> B[Existing permission rules]
   B -->|Allow| X[Execute]
   B -->|Deny| D[Deny]
-  B -->|Pending approval| C{Review enabled and Always Ask?}
+  B -->|Pending approval| C{Permission is Auto Review?}
   C -->|No| H[Native approval]
   C -->|Yes| F[Precheck, evidence, fast review]
   F -->|allow| V[Revalidate authorization and audit]
@@ -74,3 +74,30 @@ Candidates verify the CDN version, Git tag, npm SHA-512, signatures and provenan
 `autokimiSandbox` directly spawns the argv returned by the pinned Anthropic runtime. The runtime generates a trusted host wrapper and passes escaped user-command data to Seatbelt/bubblewrap for interpretation inside the sandbox. Inherited shell startup hooks, loader injection variables and common secret variables are scrubbed before spawning. The parent holds policy, domains and proxy lifecycle; SDK shutdown awaits cleanup. Permission failures never trigger an automatic unsandboxed retry. Model services, file tools and MCP sit outside this shell boundary.
 
 `reviewSafeWrite` lives in the local filesystem backend, so plan and allow-rule shortcuts still reject multi-link files. Full writes validate and atomically replace rather than truncating the old inode; appends use verified descriptors. Review evidence includes current file identity, avoiding dependence on the historical-action window to infer aliases.
+
+## Permission modes and session compatibility
+
+Version 0.4.0 makes review a native `PermissionMode = manual | review | yolo | auto` across the engine, SDK, RPC, status events and transcript. The TUI picker and bottom bar read that state. `/auto-review` remains a compatibility command and reviewer settings entry. `auto` continues to mean Never Ask.
+
+| Surface                  | Implementation boundary                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Permission engine        | `review` retains manual-mode policy ordering and reviews pending actions; explicit deny wins and explicit ask cannot be automatically approved                      |
+| Protocol and persistence | SDK, klient, server, transcript and telemetry enums agree; permission events carry version 2 with replayable version state                                          |
+| TUI                      | Four picker options, status, compatibility commands and Goal confirmation; newer choices win asynchronous races                                                     |
+| Delegation               | Ordinary subagents, forks, restored Swarm agents and Tower inherit `review` from a reviewing parent; Tower cannot force Never Ask across it                         |
+| Headless                 | Agent creation and restoration enforce `review`, which cannot be switched off during a run; side-effect tools retain stricter review outside the safe read-only set |
+| Independent controls     | OS sandbox, file-backend protection, model settings, context and cumulative budgets; questions, plan and Goal confirmation remain human decisions                   |
+
+The top-level `autokimi_permission_mode` stores the AutoKimi default. Native `default_permission_mode` keeps its original three values. SDK `setConfig({ defaultPermissionMode })` writes the AutoKimi key, and reads report the effective default; `autokimiPermissionMode` is also available explicitly. Official Kimi ignores the additional key while login, providers, models and credentials stay shared. `experimental.approval_review` controls capability availability only; disabling it never silently selects a different mode.
+
+New sessions, their indexes, workspace catalog, session locks and query cache live under `<KimiHome>/autokimi/`. Generic blob data stays shared. Older official clients cannot directly read new sessions containing `review`; this release does not export them back into the old format.
+
+```sh
+autokimi session legacy-list
+autokimi session import <id>
+autokimi -r <id>
+```
+
+Import copies one selected legacy session, rejecting source/target locks, duplicate IDs, links, special files and individual files over 256 MiB. It compares source state before and after copying, then publishes a staged copy atomically without changing the original. Close the source normally first; let that client safely clear locks left by a crash. History, context and cumulative usage stay in the copy. Headless run budgets still come from their own run journal.
+
+Pre-version-2 `manual` sessions with effective review enabled migrate to `review`. Legacy manual/off, yolo and auto retain their mode. The version marker prevents a later explicit Always Ask choice from being re-enabled on resume. Every actual mode transition increments an authorization generation; a mode switch immediately cancels in-flight review requests, and pending decisions or unused one-time grants cannot survive a mode round trip.

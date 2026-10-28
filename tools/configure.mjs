@@ -15,8 +15,8 @@ try {
   const patch = {};
   if (config.experimental?.approval_review !== true)
     patch.experimental = { approval_review: true };
-  if (config.defaultPermissionMode !== 'manual')
-    patch.defaultPermissionMode = 'manual';
+  if (config.autokimiPermissionMode !== 'review')
+    patch.autokimiPermissionMode = 'review';
   if (timeout !== '')
     patch.permission = { review: { timeoutMs: Number(timeout) } };
   if (Object.keys(patch).length) await harness.setConfig(patch);

@@ -5,7 +5,7 @@
 ## Toggle and permission mode
 
 ```toml
-default_permission_mode = "manual"
+autokimi_permission_mode = "review"
 
 [experimental]
 approval_review = true
@@ -22,22 +22,22 @@ Configuration is usually in `~/.kimi-code/config.toml`. Merge these keys into th
 
 | Setting             | Source default      | Range / meaning                                                                             |
 | ------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
-| `approval_review`   | `false`             | Enabled by installation and `/auto-review on`                                               |
+| `approval_review`   | `true`              | Capability switch; only `review` mode invokes the reviewer                                  |
 | `timeout_ms`        | `30000`             | 1000–120000 milliseconds, shared by both stages; installation examples explicitly set 90000 |
 | `max_context_chars` | `60000`             | Review evidence budget of 4000–100000 characters, not tokens                                |
 | `two_stage`         | `true`              | Independent full review when fast review does not allow                                     |
 | `model`             | Current agent model | Does not inherit the main agent's thinking effort                                           |
 | `policy`            | None                | Up to 8000 characters appended to the review system policy                                  |
 
-`KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` or the master `KIMI_CODE_EXPERIMENTAL_FLAG` can override configuration. The TUI identifies an environment override; commands cannot rewrite that override.
+`KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` and `KIMI_CODE_EXPERIMENTAL_FLAG` control capability availability, independently of the selected mode. Disabled capability prevents selecting Auto Review in the TUI; an existing `review` session denies tool execution without downgrading. An environment-enabled capability still permits switching to Always Ask.
 
 Invalid `review` configuration does not discard `permission.rules`. The runtime retains invalid raw values and denies affected reviews. Strict configuration writes still fail rather than silently restoring review defaults.
 
-`/auto-review on` enables review and selects Always Ask. `status` queries state and synchronizes the bottom bar. `off` restores the selected permission mode's original approval behavior. With an active session, on/off overrides only that session and is saved in session metadata, without changing sessions in other directories. With no active session, it changes the global default. Environment overrides still take precedence. Official `/auto` selects Never Ask; `yolo` also pauses review. During asynchronous activation or session switching, the latest session and permission state take precedence; stale snapshots do not overwrite modes or the bottom bar.
+The picker exposes `manual` (Always Ask), `review` (Auto Review), `yolo` (Ask When Needed) and `auto` (Never Ask). `/auto-review on` selects `review`; `off` selects `manual`, without a session-metadata toggle. An active session changes only its own mode; with no session, the command writes the AutoKimi default. `status` reports mode and reviewer model. The reviewer model remains shared configuration. Native `/auto` still selects Never Ask. Asynchronous operations cannot overwrite a newer choice or replacement session.
 
 ## Reviewer model, effort and endpoint
 
-When `permission.review.model` is omitted or set to `@session`, the reviewer follows the agent that triggered the action. For the main agent, this is the current `/model` selection; a subagent may use a different model. An explicit alias selects that model for reviews. `/auto-review model` offers configured models, and `/auto-review status` shows the setting. The model is shared configuration; the toggle can be overridden per session.
+When `permission.review.model` is omitted or set to `@session`, the reviewer follows the agent that triggered the action. For the main agent, this is the current `/model` selection; a subagent may use a different model. An explicit alias selects that model for reviews. `/auto-review model` offers configured models, and `/auto-review status` shows the setting. The model is shared configuration; the permission mode is persisted per session.
 
 The review thinking-effort policy is fixed in code. Always-thinking models use `low` when supported, otherwise their default effort or `on`. Other models use `off`. Both fast and full reviews use this policy, without inheriting the main agent's effort. There is currently no review-specific effort configuration key.
 
@@ -114,7 +114,7 @@ When space is limited, verification output, historical calls and older reads shr
 
 Session `approval-review.jsonl` records timestamps, tool identifiers, model, verdict, source, duration, fingerprints, denial counters, stop-turn state and authorization-use flags. It excludes raw requests, arguments, answers, interaction IDs, challenges and free-form model reasons. Files use mode `0600`, refuse symlinks and should not be uploaded.
 
-AutoKimi permits the interactive TUI, explicit `exec` jobs and listed administrative commands. New upstream entries are denied by default. Root `-p/--prompt`, ACP/Web and non-terminal TUI startup still fail. Use the [headless task interface](headless.md) for automation. Headless tasks force Always Ask and review, disable TUI one-time grants and inherit caller budgets across continuation.
+AutoKimi permits the interactive TUI, explicit `exec` jobs and listed administrative commands. New upstream entries are denied by default. Root `-p/--prompt`, ACP/Web and non-terminal TUI startup still fail. Use the [headless task interface](headless.md) for automation. Headless tasks force `review` permission mode, disable TUI one-time grants and inherit caller budgets across continuation.
 
 For old MCP OAuth credentials without an `issuer`, AutoKimi requires login again instead of reusing their tokens or client secrets. Original storage remains available to native `kimi`; new logins retain authorization-server binding.
 

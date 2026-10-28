@@ -1,3 +1,4 @@
+import { configToTomlData } from '#/config/toml';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,6 +36,16 @@ timeout_ms = 0
       timeoutMs: 0,
     });
     expect(() => parseConfigString(text)).toThrow();
+  });
+
+  it('stores review defaults in the AutoKimi key when serializing SDK config', () => {
+    const data = configToTomlData({
+      providers: {},
+      defaultPermissionMode: 'review',
+      raw: { default_permission_mode: 'yolo' },
+    });
+    expect(data['autokimi_permission_mode']).toBe('review');
+    expect(data['default_permission_mode']).toBe('yolo');
   });
 
   it('parses reviewer patches without materializing defaults', () => {

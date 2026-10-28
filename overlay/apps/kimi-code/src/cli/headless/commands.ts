@@ -525,7 +525,7 @@ export function registerHeadlessCommands(
             'cumulative totals across attempts; exhausted caps require explicit increases',
           event_cursor: 'exclusive monotonic sequence across attempts',
           permissions: {
-            mode: 'manual',
+            mode: 'review',
             review_required: true,
             os_sandbox: true,
             sandbox_scope: 'Bash and descendant processes',

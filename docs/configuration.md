@@ -5,7 +5,7 @@
 ## 开关与权限模式
 
 ```toml
-default_permission_mode = "manual"
+autokimi_permission_mode = "review"
 
 [experimental]
 approval_review = true
@@ -22,22 +22,22 @@ two_stage = true
 
 | 设置                | 源码默认值   | 范围/意义                                            |
 | ------------------- | ------------ | ---------------------------------------------------- |
-| `approval_review`   | `false`      | 安装器和 `/auto-review on` 开启                      |
+| `approval_review`   | `true`       | 审核能力开关；只有 `review` 权限模式才调用审核       |
 | `timeout_ms`        | `30000`      | 1000–120000 毫秒，两阶段合计；安装示例显式设为 90000 |
 | `max_context_chars` | `60000`      | 4000–100000 字符的审核证据预算，不是 token 数        |
 | `two_stage`         | `true`       | 快审不通过时，独立再审一次                           |
 | `model`             | 当前代理模型 | 不继承主代理的 thinking effort                       |
 | `policy`            | 无           | 最多 8000 字符，另附在审核系统策略中                 |
 
-`KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` 或总开关 `KIMI_CODE_EXPERIMENTAL_FLAG` 可以覆盖配置。被环境变量控制时，TUI 会提示来源，无法用命令改写该覆盖。
+`KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` 和 `KIMI_CODE_EXPERIMENTAL_FLAG` 控制审核能力，不能代替权限模式。能力关闭时不能从 TUI 选择 Auto Review；已处于 `review` 的会话会拒绝工具执行，不降级到其他权限。环境变量强制开启能力时，仍可切换到 Always Ask。
 
 非法 `review` 配置不会连带删除 `permission.rules`：运行时保留原始非法值并使相关审核拒绝，严格配置写入仍会报错，不会静默恢复默认审核设置。
 
-`/auto-review on` 开启审核并切回 Always Ask；`status` 查询并同步底栏缓存；`off` 恢复所选权限模式的原有审批行为。有活动会话时，on/off 只覆盖当前会话并保存在 session metadata 中，不改变其他工作目录的会话；无活动会话时才修改全局默认值。环境变量强制开关仍优先。`/auto` 是官方 Never Ask，`yolo` 同样会使审核暂停。异步开启或会话切换期间，以最新会话和权限状态为准，不会用过期快照回写权限模式或底栏。
+权限选择器提供 `manual`（Always Ask）、`review`（Auto Review）、`yolo`（Ask When Needed）和 `auto`（Never Ask）。`/auto-review on` 选择 `review`，`off` 选择 `manual`，不再使用 session metadata 作为开关；活动会话只修改本会话，无会话时写入 AutoKimi 默认值。`status` 查询模式和审核模型，审核模型仍为共享配置。原生 `/auto` 仍选择 Never Ask。异步操作不能覆盖后来选择的权限或替换后的会话。
 
 ## 审核模型、effort 与接口地址
 
-未指定 `permission.review.model` 或设为 `@session` 时，审核跟随触发该操作的代理模型；主代理对应 `/model` 当前选择，子代理可能不同。显式选择别名后，审核使用该别名；`/auto-review model` 提供已配置模型选择，`/auto-review status` 显示当前设置。审核模型是共享配置，开关则可按会话覆盖。
+未指定 `permission.review.model` 或设为 `@session` 时，审核跟随触发该操作的代理模型；主代理对应 `/model` 当前选择，子代理可能不同。显式选择别名后，审核使用该别名；`/auto-review model` 提供已配置模型选择，`/auto-review status` 显示当前设置。审核模型是共享配置，权限模式按会话持久化。
 
 审核的 thinking effort 策略固定在实现中：始终思考且支持 `low` 的模型用 `low`；该类模型不支持 `low` 时用默认 effort 或 `on`；其他模型用 `off`。快审与完整审核一致，不继承主代理的 effort。当前没有审核专用 effort 配置键。
 
@@ -114,7 +114,7 @@ model = "reviewer"
 
 会话目录的 `approval-review.jsonl` 保存时间、工具标识、模型、结论、来源、耗时、指纹、拒绝计数、停轮及授权使用标记，不保存原始请求、参数、回答、interaction ID、挑战或模型自由理由。文件为 `0600` 且拒绝跟随符号链接，不应上传。
 
-AutoKimi 开放交互 TUI、显式 `exec` 无头任务及已列出的管理命令，新上游入口默认拒绝。根命令 `-p/--prompt`、ACP/Web 和无终端启动 TUI 仍报错；自动化请使用 [无头任务接口](headless.md)。无头任务强制 Always Ask 与审核，不能使用 TUI 一次授权；预算由调用者设置并跨续跑累计。
+AutoKimi 开放交互 TUI、显式 `exec` 无头任务及已列出的管理命令，新上游入口默认拒绝。根命令 `-p/--prompt`、ACP/Web 和无终端启动 TUI 仍报错；自动化请使用 [无头任务接口](headless.md)。无头任务强制 `review` 权限模式，不能使用 TUI 一次授权；预算由调用者设置并跨续跑累计。
 
 旧 MCP OAuth 凭据若没有 `issuer`，AutoKimi 会要求重新登录，不复用其中的令牌或客户端密钥；原始存储保留供原生 `kimi` 使用。新登录会保存授权服务器绑定。
 

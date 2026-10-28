@@ -58,7 +58,7 @@ Updating official `kimi` does not update AutoKimi. Maintainers explicitly select
 
 See [updates](installation.md#updates) for candidate updates, source fetching, receipts and failure states.
 
-The source budget is 896 KiB, covering frozen-dependency patches, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
+The source budget is 1024 KiB, covering frozen-dependency patches, native permissions and session migration, TUI confirmation, installation regressions and Chinese/English documentation. Caches, dependencies and runtime packages still stay out of Git.
 
 ## Repository release audit
 

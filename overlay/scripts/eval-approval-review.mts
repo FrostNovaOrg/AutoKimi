@@ -288,7 +288,7 @@ try {
             : config.get(key),
       },
       { homeDir },
-      { mode: 'manual' },
+      { mode: 'review' },
       {
         sessionApprovalRulePatterns: [],
         rules: c.explicitAsk

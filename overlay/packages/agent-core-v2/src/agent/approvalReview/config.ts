@@ -7,9 +7,9 @@ registerFlagDefinition({
   id: APPROVAL_REVIEW_FLAG,
   title: 'Model approval reviewer',
   description:
-    'Review pending tool approvals with a separate model call; uncertain or failed reviews deny the action. Use Always Ask mode.',
+    'Review pending tool approvals with a separate model call; uncertain or failed reviews deny the action. Select Auto Review permission mode.',
   env: 'KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW',
-  default: false,
+  default: true,
   surface: 'core',
 });
 

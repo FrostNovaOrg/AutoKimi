@@ -1,3 +1,4 @@
+import { Emitter } from '#/_base/event';
 import {
   AutoKimiHeadlessControl,
   IAutoKimiHeadless,
@@ -775,9 +776,14 @@ describe('AgentApprovalReviewService', () => {
     cleanup.push(() => {
       disposables.dispose();
     });
+    const permissionChanges = disposables.add(
+      new Emitter<
+        import('#/agent/permissionMode/permissionMode').PermissionModeChangedContext
+      >(),
+    );
     const state = {
       enabled: true,
-      mode: 'manual' as 'manual' | 'yolo' | 'auto',
+      mode: 'review' as 'manual' | 'review' | 'yolo' | 'auto',
       messages: [user('Run the local tests')],
       rootMessages: [user('Run the local tests')],
       agentId: 'main',
@@ -788,6 +794,7 @@ describe('AgentApprovalReviewService', () => {
       reviewOverride: undefined as boolean | undefined,
       metadataLoaded: true,
       revision: 0,
+      permissionRevision: 0,
     };
     const inputs: unknown[] = [];
     const dispatch = vi.fn(async () => {});
@@ -828,8 +835,12 @@ describe('AgentApprovalReviewService', () => {
           homeDir: join(directory, 'home'),
         });
         reg.definePartialInstance(IAgentPermissionModeService, {
+          onDidChangeMode: permissionChanges.event,
           get mode() {
             return state.mode;
+          },
+          get revision() {
+            return state.permissionRevision;
           },
         });
         reg.definePartialInstance(IAgentPermissionRulesService, {
@@ -934,6 +945,7 @@ describe('AgentApprovalReviewService', () => {
       },
     });
     return {
+      permissionChanges,
       state,
       inputs,
       dispatch,
@@ -1250,24 +1262,17 @@ describe('AgentApprovalReviewService', () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it('uses the session review override instead of the global default', async () => {
+  it('uses only the native permission mode and capability availability', async () => {
     const t = await setup();
+    t.state.reviewOverride = false;
+    t.state.metadataLoaded = false;
+    expect(t.service.isEnabled()).toBe(true);
     t.state.enabled = false;
     t.state.reviewOverride = true;
-    expect(t.service.isEnabled()).toBe(true);
+    expect(t.service.isEnabled()).toBe(false);
     t.state.enabled = true;
-    t.state.reviewOverride = false;
+    t.state.mode = 'manual';
     expect(t.service.isEnabled()).toBe(false);
-  });
-
-  it('fails closed while metadata is unavailable and honors environment overrides', async () => {
-    const t = await setup();
-    t.state.metadataLoaded = false;
-    expect(t.service.isEnabled()).toBe(false);
-    t.state.metadataLoaded = true;
-    t.state.reviewOverride = false;
-    t.state.flagSource = 'env';
-    expect(t.service.isEnabled()).toBe(true);
   });
 
   it('approves once with no tools and writes a redacted audit record', async () => {
@@ -1354,7 +1359,7 @@ describe('AgentApprovalReviewService', () => {
     expect(
       await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
     ).toMatchObject({ kind: 'deny' });
-    t.state.mode = 'manual';
+    t.state.mode = 'review';
     t.state.enabled = false;
     expect(
       await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
@@ -2053,6 +2058,78 @@ describe('AgentApprovalReviewService', () => {
         text.includes('"verified_one_time_user_approval":{'),
       ),
     ).toHaveLength(1);
+  });
+
+  it('cancels an in-flight model request as soon as permission mode changes', async () => {
+    const t = await setup();
+    t.state.settings = { twoStage: false };
+    t.generate.mockImplementationOnce(async function* (_model, _input, signal) {
+      if (signal === undefined)
+        throw new Error('Expected a cancellation signal');
+      signal.throwIfAborted();
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), {
+          once: true,
+        });
+      });
+      yield {
+        type: 'finish',
+        message: createAssistantMessage([{ type: 'text', text: allow }]),
+        providerFinishReason: 'completed',
+      };
+    });
+    const pending = t.service.review(
+      t.context(),
+      { kind: 'ask' },
+      'fallback-ask',
+    );
+    await vi.waitFor(() => expect(t.generate).toHaveBeenCalled());
+    t.state.mode = 'manual';
+    t.state.permissionRevision += 1;
+    t.permissionChanges.fire({ mode: 'manual', previousMode: 'review' });
+    expect(await pending).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('Permission mode changed during review'),
+    });
+  });
+
+  it('discards an allow if permission changes away from review and back during the model call', async () => {
+    const t = await setup();
+    t.state.settings = { twoStage: false };
+    t.generate.mockImplementationOnce(async function* () {
+      t.state.permissionRevision += 2;
+      yield {
+        type: 'finish',
+        message: createAssistantMessage([{ type: 'text', text: allow }]),
+        providerFinishReason: 'completed',
+      };
+    });
+    expect(
+      await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask'),
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('changed during review'),
+    });
+  });
+
+  it('expires unused one-time grants when the permission generation changes', async () => {
+    const t = await setup();
+    t.state.settings = { twoStage: false };
+    t.state.replies = [deny, deny];
+    await t.service.review(t.context(), { kind: 'ask' }, 'fallback-ask');
+    const challenge = issuedChallenges(t)[0]!;
+    t.state.messages.push(user(createReviewGrantMessage(challenge)));
+    t.state.permissionRevision += 2;
+    await t.service.review(
+      { ...t.context(), turnId: 2 },
+      { kind: 'ask' },
+      'fallback-ask',
+    );
+    expect(
+      reviewerTexts(t).some((text) =>
+        text.includes('"verified_one_time_user_approval":{'),
+      ),
+    ).toBe(false);
   });
 
   it('invalidates a consumed grant when the context revision changes during review', async () => {

@@ -58,36 +58,70 @@ index a881e53..ff1f0af 100644
  }
  
 diff --git a/apps/kimi-code/src/tui/commands/config.ts b/apps/kimi-code/src/tui/commands/config.ts
-index 777060b..a1de65f 100644
+index 777060b..dc4edad 100644
 --- a/apps/kimi-code/src/tui/commands/config.ts
 +++ b/apps/kimi-code/src/tui/commands/config.ts
-@@ -60,6 +60,7 @@ import {
+@@ -1,3 +1,4 @@
++import { clearApprovalReviewDenials } from './review-state';
+ import {
+   ErrorCodes,
+   PRIMARY_SUBAGENT_MODEL_CHOICE,
+@@ -60,6 +61,7 @@ import {
  import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
  import { showUsage } from './info';
  import { setExperimentalFeatures } from './experimental-flags';
-+import { notePermissionStateChanged } from './permission-state';
++import { notePermissionStateChanged, permissionStateRevision } from './permission-state';
  import type { SlashCommandHost } from './dispatch';
  
  // ---------------------------------------------------------------------------
-@@ -904,8 +905,8 @@ export async function applyUpdatePreferenceChoice(
+@@ -904,29 +906,30 @@ export async function applyUpdatePreferenceChoice(
    host.showStatus(`Automatic updates ${autoInstall ? 'enabled' : 'disabled'}.`);
  }
  
 -async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
 -  if (mode === host.state.appState.permissionMode) {
+-    host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
+-    return;
+-  }
+-
 +export async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
-+  if (host.session === undefined && mode === host.state.appState.permissionMode) {
-     host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
-     return;
-   }
-@@ -922,6 +923,7 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
-     return;
-   }
- 
++  const session = host.session;
++  const previousMode = host.state.appState.permissionMode;
 +  notePermissionStateChanged();
-   host.setAppState({ permissionMode: mode });
++  const revision = permissionStateRevision();
++  const current = (): boolean => host.session === session && permissionStateRevision() === revision;
+   try {
+-    if (host.session !== undefined) {
+-      await host.session.setPermission(mode);
++    if (mode === 'review') {
++      const feature = (await host.harness.getExperimentalFeatures())
++        .find((entry) => entry.id === 'approval_review');
++      if (!current()) return;
++      if (feature?.enabled !== true) throw new Error('Auto Review is disabled by the approval_review capability setting.');
+     }
+-    // v2 session-less: the chosen mode is recorded in appState and passed to
+-    // the lazy-created session.
++    if (!current()) return;
++    await session?.setPermission(mode);
+   } catch (error) {
+-    const msg = formatErrorMessage(error);
+-    host.showError(`Failed to set permission mode: ${msg}`);
++    if (current()) host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
+     return;
+   }
+-
+-  host.setAppState({ permissionMode: mode });
++  if (!current()) return;
++  if (previousMode !== mode) clearApprovalReviewDenials(session?.id);
++  host.setAppState({ permissionMode: mode, approvalReviewEnabled: mode === 'review' });
    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
-   if (mode !== 'manual') {
+-  if (mode !== 'manual') {
+-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
+-  }
++  if (mode !== 'manual') host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], mode === 'review' ? 'primary' : 'warning');
+ }
+ 
+ export function showSurveyPreferencePicker(host: SlashCommandHost): void {
 diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
 index 898e159..620b1ac 100644
 --- a/apps/kimi-code/src/tui/commands/dispatch.ts
@@ -148,7 +182,7 @@ index e4ad7ab..2cc4d81 100644
      name: 'yolo',
      aliases: ['yes'],
 diff --git a/apps/kimi-code/src/tui/components/chrome/footer.ts b/apps/kimi-code/src/tui/components/chrome/footer.ts
-index d9fd386..96d249e 100644
+index d9fd386..59521a8 100644
 --- a/apps/kimi-code/src/tui/components/chrome/footer.ts
 +++ b/apps/kimi-code/src/tui/components/chrome/footer.ts
 @@ -17,6 +17,7 @@ import { currentTheme } from '#/tui/theme';
@@ -163,15 +197,15 @@ index d9fd386..96d249e 100644
      }
  
      const modes: string[] = [];
-+    if (state.approvalReviewEnabled ?? isExperimentalFlagEnabled('approval_review')) {
-+      modes.push(chalk.hex(state.permissionMode === 'manual' ? colors.primary : colors.warning)
-+        .bold(state.permissionMode === 'manual' ? 'Auto-review' : 'Auto-review paused'));
++    if (state.permissionMode === 'review') {
++      modes.push(chalk.hex(state.approvalReviewEnabled === false ? colors.warning : colors.primary)
++        .bold(state.approvalReviewEnabled === false ? 'Auto Review unavailable' : PERMISSION_MODE_DISPLAY_NAMES.review));
 +    }
      if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
      if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
      if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
 diff --git a/apps/kimi-code/src/tui/controllers/session-event-handler.ts b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
-index c227a0c..db09ac9 100644
+index c227a0c..9782252 100644
 --- a/apps/kimi-code/src/tui/controllers/session-event-handler.ts
 +++ b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
 @@ -44,6 +44,10 @@ import {
@@ -216,8 +250,20 @@ index c227a0c..db09ac9 100644
      if (event.update.kind === 'status') {
        tc.appendProgress(text, { replace: event.update.replace === true });
        return;
+@@ -762,7 +778,11 @@ export class SessionEventHandler {
+     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
+     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
+     if (event.permission !== undefined) {
++      if (event.permission !== this.host.state.appState.permissionMode) {
++        clearApprovalReviewDenials(this.host.state.appState.sessionId);
++      }
+       patch.permissionMode = event.permission;
++      patch.approvalReviewEnabled = event.permission === 'review';
+     }
+     if (event.model !== undefined) patch.model = event.model;
+     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
 diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
-index c4a3247..bcccbc3 100644
+index c4a3247..f673976 100644
 --- a/apps/kimi-code/src/tui/kimi-tui.ts
 +++ b/apps/kimi-code/src/tui/kimi-tui.ts
 @@ -69,6 +69,10 @@ import {
@@ -240,7 +286,7 @@ index c4a3247..bcccbc3 100644
    private skillCommands: readonly KimiSlashCommand[] = [];
    readonly skillCommandMap = new Map<string, string>();
    private pluginCommands: readonly KimiSlashCommand[] = [];
-@@ -514,6 +520,26 @@ export class KimiTUI {
+@@ -514,6 +520,27 @@ export class KimiTUI {
        if (change.domain !== 'disableFeedbackSurvey') return;
        this.setAppState({ disableFeedbackSurvey: change.value === true ? true : undefined });
      });
@@ -257,6 +303,7 @@ index c4a3247..bcccbc3 100644
 +              approvalReviewEnabled: effectiveApprovalReview(
 +                this.session,
 +                features.find((entry) => entry.id === 'approval_review'),
++                this.state.appState.permissionMode,
 +              ),
 +            });
 +            this.refreshSlashCommandAutocomplete();
@@ -267,7 +314,7 @@ index c4a3247..bcccbc3 100644
      this.streamingUI = new StreamingUIController(this);
      this.authFlow = new AuthFlowController(this);
      this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
-@@ -1110,6 +1136,8 @@ export class KimiTUI {
+@@ -1110,6 +1137,8 @@ export class KimiTUI {
      this.surveyController.dispose();
      this.surveySettingSubscription?.();
      this.surveySettingSubscription = undefined;
@@ -276,7 +323,7 @@ index c4a3247..bcccbc3 100644
      this.state.footer.dispose();
      for (const dispose of this.reverseRpcDisposers) {
        dispose();
-@@ -1481,6 +1509,30 @@ export class KimiTUI {
+@@ -1481,6 +1510,30 @@ export class KimiTUI {
      this.updateQueueDisplay();
    }
  
@@ -307,7 +354,18 @@ index c4a3247..bcccbc3 100644
    async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
      if (this.btwPanelController.sendUserInput(text)) return;
      if (this.state.appState.model.trim().length === 0) {
-@@ -2895,9 +2947,18 @@ export class KimiTUI {
+@@ -2735,7 +2788,9 @@ export class KimiTUI {
+     if (!startup.auto && !startup.yolo) {
+       // Reset to manual when the default was removed from config — a stale
+       // elevated mode must not be passed to the first lazy-created session.
+-      patch.permissionMode = config.defaultPermissionMode ?? 'manual';
++      patch.permissionMode = config.autokimiPermissionMode ??
++        ((config.defaultPermissionMode ?? 'manual') === 'manual' && config.experimental?.['approval_review'] === true
++          ? 'review' : config.defaultPermissionMode) ?? 'manual';
+     }
+     // Track the config default itself (vs an explicit CLI --plan) so the lazy
+     // create path can tell which one would activate plan mode; a removed
+@@ -2895,9 +2950,19 @@ export class KimiTUI {
    }
  
    async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -323,11 +381,12 @@ index c4a3247..bcccbc3 100644
 +      approvalReviewEnabled: effectiveApprovalReview(
 +        session,
 +        features.find((entry) => entry.id === 'approval_review'),
++        status.permission,
 +      ),
        model: status.model ?? '',
        thinkingEffort: status.thinkingEffort,
        permissionMode: status.permission,
-@@ -4402,11 +4463,13 @@ export class KimiTUI {
+@@ -4402,11 +4467,13 @@ export class KimiTUI {
  
    /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
    noteCompactionFinished(): void {
@@ -368,7 +427,7 @@ index 4fff07e..8c69947 100644
    });
  
 diff --git a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts b/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
-index 08883eb..4426839 100644
+index 08883eb..e5f5aec 100644
 --- a/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
 +++ b/apps/kimi-code/test/tui/components/chrome/footer-status-line.test.ts
 @@ -5,6 +5,7 @@ import { join } from 'node:path';
@@ -379,26 +438,20 @@ index 08883eb..4426839 100644
  import {
    runStatusLineCommand,
    STATUS_LINE_MAX_CAPTURE_BYTES,
-@@ -62,6 +63,23 @@ function plain(text: string): string {
+@@ -62,6 +63,17 @@ function plain(text: string): string {
  }
  
  describe('FooterComponent status_line items', () => {
-+  it('shows whether model approval review is active or paused', () => {
++  it('shows Auto Review only when the native permission mode is selected', () => {
 +    setExperimentalFeatures([{ id: 'approval_review', enabled: true }]);
 +    try {
-+      const active = new FooterComponent({ ...baseState }).render(200).map(plain).join('\n');
-+      expect(active).toContain('Auto-review');
-+      expect(active).not.toContain('Auto-review paused');
-+      const paused = new FooterComponent({ ...baseState, permissionMode: 'auto' }).render(200).map(plain).join('\n');
-+      expect(paused).toContain('Auto-review paused');
-+      const disabled = new FooterComponent({ ...baseState, approvalReviewEnabled: false }).render(200).map(plain).join('\n');
-+      expect(disabled).not.toContain('Auto-review');
-+      setExperimentalFeatures([]);
-+      const enabled = new FooterComponent({ ...baseState, approvalReviewEnabled: true }).render(200).map(plain).join('\n');
-+      expect(enabled).toContain('Auto-review');
-+    } finally {
-+      setExperimentalFeatures([]);
-+    }
++      const active = new FooterComponent({ ...baseState, permissionMode: 'review' }).render(200).map(plain).join('\n');
++      expect(active).toContain('Auto Review');
++      for (const mode of ['manual', 'yolo', 'auto'] as const) {
++        const inactive = new FooterComponent({ ...baseState, permissionMode: mode, approvalReviewEnabled: true }).render(200).map(plain).join('\n');
++        expect(inactive).not.toContain('Auto Review');
++      }
++    } finally { setExperimentalFeatures([]); }
 +  });
    it('renders only the chosen slots in the given order', () => {
      const state: AppState = {
@@ -569,23 +622,42 @@ index 25b21bc..4b4f80b 100644
 +  });
 +});
 diff --git a/packages/agent-core-v2/docs/config-manifest.toml b/packages/agent-core-v2/docs/config-manifest.toml
-index a82cc33..aace19b 100644
+index a82cc33..2be4b7d 100644
 --- a/packages/agent-core-v2/docs/config-manifest.toml
 +++ b/packages/agent-core-v2/docs/config-manifest.toml
-@@ -322,6 +322,13 @@ merge_all_available_skills = true
-   # reason: string
- # dangerous_command_guard: boolean
+@@ -8,7 +8,8 @@
+ # commented "# field: type" lines describe the remaining schema fields.
+ # Values resolve as: default -> config.toml -> env overlay -> memory.
  
-+# [permission.review]
-+  # model: string
-+  # timeout_ms: integer (default: 30000)
-+  # max_context_chars: integer (default: 24000)
-+  # two_stage: boolean (default: true)
-+  # policy: string
+-# Index (29 sections · 2 overlay(s))
++# Index (30 sections · 2 overlay(s))
++#   autokimiPermissionMode   src/agent/permissionMode/configSection.ts
+ #   background               src/agent/task/configSection.ts
+ #   builtinProductSkills     src/features/skill/catalog/configSection.ts
+ #   cron                     src/features/cron/configSection.ts
+@@ -41,6 +42,14 @@
+ #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
+ #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
+ 
++# ##########################################################################
++# autokimiPermissionMode (config.toml: autokimi_permission_mode)
++#   owner: src/agent/permissionMode/configSection.ts
++#   scope: core
++# ##########################################################################
++
++# autokimi_permission_mode: "manual" | "review" | "yolo" | "auto"
 +
  # ##########################################################################
+ # background
+ #   owner: src/agent/task/configSection.ts
+@@ -321,6 +330,7 @@ merge_all_available_skills = true
+   # pattern: string
+   # reason: string
+ # dangerous_command_guard: boolean
++# review: any
+ 
+ # ##########################################################################
  # providers
- #   owner: src/app/kosongConfig/configSection.ts
 diff --git a/packages/agent-core-v2/src/agent/permissionRules/configSection.ts b/packages/agent-core-v2/src/agent/permissionRules/configSection.ts
 index f37a031..644dbb7 100644
 --- a/packages/agent-core-v2/src/agent/permissionRules/configSection.ts
@@ -653,7 +725,7 @@ index 046ed8c..080eed2 100644
  
    get sessionApprovalRulePatterns(): readonly string[] {
 diff --git a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
-index 96f36f1..01b5ab2 100644
+index 96f36f1..dd99d9b 100644
 --- a/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
 +++ b/packages/agent-core-v2/src/agent/toolApproval/toolApprovalService.ts
 @@ -1,3 +1,4 @@
@@ -737,13 +809,16 @@ index 96f36f1..01b5ab2 100644
              ),
            ),
          };
-@@ -110,6 +130,57 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -110,6 +130,60 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
      result: Extract<PermissionPolicyResult, { kind: 'ask' }>,
      origin: string,
    ): Promise<BeforeExecuteDecision | undefined> {
 +    if (this.headless?.active && !this.reviewer.isEnabled()) {
 +      this.headless?.stop('review_disabled');
 +      this.headless?.check();
++    }
++    if (this.modeService.mode === 'review' && !this.reviewer.isEnabled()) {
++      return { veto: { output: 'Auto Review is unavailable; this action was denied.', isError: true, stopTurn: true } };
 +    }
 +    const interactiveReview = !this.headless?.active &&
 +      result.resolveApproval !== undefined &&
@@ -795,7 +870,7 @@ index 96f36f1..01b5ab2 100644
      const name = context.toolCall.name;
      const action = context.execution.description ?? `Approve ${name}`;
      const display =
-@@ -132,6 +203,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -132,6 +206,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
      const approvalContext = {
        ...approvalRequest,
        toolInput: context.args,
@@ -804,7 +879,7 @@ index 96f36f1..01b5ab2 100644
      } satisfies PermissionApprovalRequestedPayload;
      const startedAt = Date.now();
  
-@@ -142,17 +215,21 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -142,17 +218,21 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
        [INTERACTION_TAG_TOOL_CALL_ID]: context.toolCall.id,
      };
      let response: ApprovalResponse;
@@ -829,7 +904,7 @@ index 96f36f1..01b5ab2 100644
        context.signal.throwIfAborted();
      } catch (error) {
        if (isUserCancellation(error)) throw error;
-@@ -214,7 +291,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -214,7 +294,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
        approval_surface: display.kind,
        duration_ms: Date.now() - startedAt,
        session_cache_written: sessionApprovalRule !== undefined,
@@ -839,7 +914,7 @@ index 96f36f1..01b5ab2 100644
        trace_id: context.trace?.traceId,
      });
  
-@@ -225,7 +303,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
+@@ -225,7 +306,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
  
      if (response.decision === 'approved') return undefined;
      return {
@@ -1538,9 +1613,18 @@ index 3c18d24..fed56ef 100644
        );
      });
 diff --git a/packages/node-sdk/src/config/schema.ts b/packages/node-sdk/src/config/schema.ts
-index b149791..f2b58ba 100644
+index b149791..2af1643 100644
 --- a/packages/node-sdk/src/config/schema.ts
 +++ b/packages/node-sdk/src/config/schema.ts
+@@ -116,7 +116,7 @@ export const ThinkingConfigSchema = z.object({
+ 
+ export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
+ 
+-export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
++export const PermissionModeSchema = z.enum(['yolo', 'manual', 'review', 'auto']);
+ 
+ export const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
+ export const PermissionRuleScopeSchema = z.enum([
 @@ -135,8 +135,22 @@ export const PermissionRuleSchema = z.object({
    reason: z.string().optional(),
  });
@@ -1564,7 +1648,15 @@ index b149791..f2b58ba 100644
  });
  
  export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
-@@ -319,10 +333,32 @@ export const KimiConfigSchema = z.object({
+@@ -296,6 +310,7 @@ export const KimiConfigSchema = z.object({
+   planMode: z.boolean().optional(),
+   yolo: z.boolean().optional(),
+   defaultPermissionMode: PermissionModeSchema.optional(),
++  autokimiPermissionMode: PermissionModeSchema.optional(),
+   defaultPlanMode: z.boolean().optional(),
+   autoSessionTitle: z.boolean().optional(),
+   permission: PermissionConfigSchema.optional(),
+@@ -319,10 +334,32 @@ export const KimiConfigSchema = z.object({
  
  export type KimiConfig = z.infer<typeof KimiConfigSchema>;
  
@@ -1598,8 +1690,16 @@ index b149791..f2b58ba 100644
  const LoopControlPatchSchema = LoopControlSchema.partial();
  const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
  const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
+@@ -347,6 +384,7 @@ export const KimiConfigPatchSchema = z
+     planMode: z.boolean().optional(),
+     yolo: z.boolean().optional(),
+     defaultPermissionMode: PermissionModeSchema.optional(),
++  autokimiPermissionMode: PermissionModeSchema.optional(),
+     defaultPlanMode: z.boolean().optional(),
+     autoSessionTitle: z.boolean().optional(),
+     permission: PermissionConfigPatchSchema.optional(),
 diff --git a/packages/node-sdk/src/config/toml.ts b/packages/node-sdk/src/config/toml.ts
-index 71c8eac..1a7f219 100644
+index 71c8eac..d664ee6 100644
 --- a/packages/node-sdk/src/config/toml.ts
 +++ b/packages/node-sdk/src/config/toml.ts
 @@ -11,6 +11,7 @@ import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
@@ -1636,7 +1736,31 @@ index 71c8eac..1a7f219 100644
  
    const rules: unknown[] = [];
    appendPermissionRules(rules, raw['rules']);
-@@ -581,6 +589,15 @@ function permissionToToml(
+@@ -439,6 +447,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
+     'planMode',
+     'yolo',
+     'defaultPermissionMode',
++    'autokimiPermissionMode',
+     'defaultPlanMode',
+     'autoSessionTitle',
+     'mergeAllAvailableSkills',
+@@ -448,9 +457,15 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
+     'disableFeedbackSurvey',
+   ];
+   for (const key of scalarFields) {
++    if (key === 'defaultPermissionMode' && config[key] === 'review') continue;
+     setDefined(out, camelToSnake(key), config[key]);
+   }
+ 
++  if (config.defaultPermissionMode === 'review') {
++    out['autokimi_permission_mode'] = config.autokimiPermissionMode ?? 'review';
++    if (out['default_permission_mode'] === 'review') out['default_permission_mode'] = 'manual';
++  }
++
+   setRecordSection(out, 'providers', config.providers, providerToToml);
+   setRecordSection(out, 'models', config.models, modelToToml);
+   setSection(out, 'thinking', config.thinking, thinkingToToml);
+@@ -581,6 +596,15 @@ function permissionToToml(
    delete out['allow'];
    delete out['ask'];
  
@@ -1721,7 +1845,7 @@ index d73de48..9c3f962 100644
      const dir = await makeTempDir();
      const rpc = createKimiConfigRpc();
 diff --git a/packages/node-sdk/test/session-prompt-events.test.ts b/packages/node-sdk/test/session-prompt-events.test.ts
-index 56be2d4..311cc9d 100644
+index 56be2d4..e55cd3b 100644
 --- a/packages/node-sdk/test/session-prompt-events.test.ts
 +++ b/packages/node-sdk/test/session-prompt-events.test.ts
 @@ -1,4 +1,4 @@
@@ -1889,7 +2013,7 @@ index 56be2d4..311cc9d 100644
 +          id: `ses_model_review_${scenario}`,
 +          workDir,
 +          permission:
-+            scenario === 'invalid-review-hard-deny-auto' ? 'auto' : 'manual',
++            scenario === 'invalid-review-hard-deny-auto' ? 'auto' : 'review',
 +        });
 +        const manual = vi.fn(() => ({ decision: 'rejected' as const }));
 +        session.setApprovalHandler(manual);
@@ -2023,7 +2147,7 @@ index 56be2d4..311cc9d 100644
 +      const session = await harness.createSession({
 +        id: 'ses_one_time_override',
 +        workDir,
-+        permission: 'manual',
++        permission: 'review',
 +      });
 +      const manual = vi.fn(() => ({ decision: 'rejected' as const }));
 +      session.setApprovalHandler(manual);
@@ -2184,18 +2308,18 @@ index 56be2d4..311cc9d 100644
 +      const disabled = await harness.createSession({
 +        id: 'ses_review_scope_disabled',
 +        workDir: disabledWorkDir,
-+        permission: 'manual',
++        permission: 'review',
 +      });
 +      const enabled = await harness.createSession({
 +        id: 'ses_review_scope_enabled',
 +        workDir: enabledWorkDir,
-+        permission: 'manual',
++        permission: 'review',
 +      });
 +      const disabledManual = vi.fn(() => ({ decision: 'rejected' as const }));
 +      const enabledManual = vi.fn(() => ({ decision: 'rejected' as const }));
 +      disabled.setApprovalHandler(disabledManual);
 +      enabled.setApprovalHandler(enabledManual);
-+      await disabled.updateMetadata({ autokimi: { approvalReview: false } });
++      await disabled.setPermission('manual');
 +      const disabledDone = waitForEvent(
 +        disabled,
 +        (event) => event.type === 'turn.ended',

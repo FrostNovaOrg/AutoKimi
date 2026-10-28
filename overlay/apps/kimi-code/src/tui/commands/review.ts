@@ -1,13 +1,9 @@
+import { permissionStateRevision } from './permission-state';
+import { applyPermissionChoice } from './config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
 import {
-  notePermissionStateChanged,
-  permissionStateRevision,
-} from './permission-state';
-import {
   approvalReviewDenials,
-  approvalReviewMetadata,
-  clearApprovalReviewDenials,
   createApprovalReviewGrantMessage,
   effectiveApprovalReview,
   takeApprovalReviewDenial,
@@ -36,8 +32,12 @@ async function submitInteractiveApproval(
     if (
       host.session !== session ||
       host.state.appState.sessionId !== session.id ||
-      !effectiveApprovalReview(session, feature) ||
-      host.state.appState.permissionMode !== 'manual'
+      !effectiveApprovalReview(
+        session,
+        feature,
+        host.state.appState.permissionMode,
+      ) ||
+      host.state.appState.permissionMode !== 'review'
     ) {
       host.showError('The selected auto-review denial is no longer active.');
       return false;
@@ -123,8 +123,16 @@ export async function handleReviewCommand(
   args: string,
 ): Promise<void> {
   const input = args.trim();
+  const targetSession = host.session;
+  const initialRevision = permissionStateRevision();
   const features = await host.harness.getExperimentalFeatures();
   setExperimentalFeatures(features);
+  if (
+    (input === 'on' || input === 'off') &&
+    (host.session !== targetSession ||
+      permissionStateRevision() !== initialRevision)
+  )
+    return;
   const feature = features.find((entry) => entry.id === 'approval_review');
   if (feature === undefined) {
     host.showError(
@@ -133,17 +141,21 @@ export async function handleReviewCommand(
     return;
   }
   if (input === '') {
-    const enabled = effectiveApprovalReview(host.session, feature);
+    const enabled = effectiveApprovalReview(
+      host.session,
+      feature,
+      host.state.appState.permissionMode,
+    );
     const scope =
       host.session === undefined ? 'global default' : 'current session';
     await reviewChoice(host, {
       title: 'Auto-review settings',
-      notice: `Review switch: ${scope}. Reviewer model: shared configuration.`,
+      notice: `Permission mode: ${scope}. Reviewer model: shared configuration.`,
       noticeTone: 'warning',
       options: [
         { value: 'status', label: `Status: ${enabled ? 'ON' : 'OFF'}` },
-        { value: 'on', label: 'Enable review in Always Ask mode' },
-        { value: 'off', label: 'Disable review' },
+        { value: 'on', label: 'Select Auto Review permission mode' },
+        { value: 'off', label: 'Select Always Ask permission mode' },
         { value: 'model', label: 'Reviewer model' },
         { value: 'approve', label: 'Review denied actions' },
       ],
@@ -158,15 +170,21 @@ export async function handleReviewCommand(
   }
   if (input === 'status') {
     const config = await host.harness.getConfig();
-    const enabled = effectiveApprovalReview(host.session, feature);
+    const enabled = effectiveApprovalReview(
+      host.session,
+      feature,
+      host.state.appState.permissionMode,
+    );
     host.setAppState({ approvalReviewEnabled: enabled });
     host.showNotice(
       `Auto-review: ${enabled ? 'ON' : 'OFF'}; reviewer: ${config.permission?.review?.model === '@session' ? 'current session model' : (config.permission?.review?.model ?? 'current session model')}.`,
       !enabled
-        ? 'Disabled: tool approvals follow your selected permission mode.'
-        : host.state.appState.permissionMode === 'manual'
+        ? host.state.appState.permissionMode === 'review'
+          ? 'Unavailable: the review capability is disabled. Tool execution is blocked until you select another permission mode or enable the capability.'
+          : 'Disabled: tool approvals follow your selected permission mode.'
+        : host.state.appState.permissionMode === 'review'
           ? 'Pending tool approvals are reviewed; uncertain or failed reviews deny the action without a permission prompt.'
-          : 'Paused: select Always Ask mode to review pending approvals.',
+          : 'Select Auto Review permission mode to review pending approvals.',
     );
     return;
   }
@@ -197,12 +215,14 @@ export async function handleReviewCommand(
       return;
     }
     if (
-      !effectiveApprovalReview(session, feature) ||
-      host.state.appState.permissionMode !== 'manual'
+      !effectiveApprovalReview(
+        session,
+        feature,
+        host.state.appState.permissionMode,
+      ) ||
+      host.state.appState.permissionMode !== 'review'
     ) {
-      host.showError(
-        'One-time approval requires auto-review active in Always Ask mode.',
-      );
+      host.showError('One-time approval requires Auto Review permission mode.');
       return;
     }
     if (input === 'approve' || input === 'interactive-approve') {
@@ -274,58 +294,25 @@ export async function handleReviewCommand(
     );
     return;
   }
-  if (feature.source === 'env' || feature.source === 'master-env') {
+  if (input === 'on' && !feature.enabled) {
     host.showError(
-      `Auto-review is controlled by ${feature.source === 'env' ? feature.env : 'KIMI_CODE_EXPERIMENTAL_FLAG'}. Remove that environment override before changing it here.`,
+      `Auto Review is unavailable: approval_review is disabled by ${feature.source}.`,
     );
     return;
   }
   try {
     const session = host.session;
-    if (input === 'off') clearApprovalReviewDenials(session?.id);
-    if (input === 'on') {
-      const appState = host.state.appState;
-      const revision = permissionStateRevision();
-      await session?.setPermission('manual');
-      if (session === undefined) {
-        await host.harness.setConfig({
-          defaultPermissionMode: 'manual',
-          experimental: { approval_review: true },
-        });
-      } else {
-        await session.updateMetadata(approvalReviewMetadata(true));
-      }
-      if (
-        host.session === session &&
-        host.state.appState === appState &&
-        permissionStateRevision() === revision
-      ) {
-        host.setAppState({ permissionMode: 'manual' });
-        notePermissionStateChanged();
-      }
-    } else if (session === undefined) {
-      await host.harness.setConfig({
-        experimental: { approval_review: false },
-      });
-    } else {
-      await session.updateMetadata(approvalReviewMetadata(false));
+    const mode = input === 'on' ? 'review' : 'manual';
+    if (session === undefined) {
+      await host.harness.setConfig({ autokimiPermissionMode: mode });
     }
-    const latestFeatures = await host.harness.getExperimentalFeatures();
-    setExperimentalFeatures(latestFeatures);
-    const latestFeature =
-      latestFeatures.find((entry) => entry.id === 'approval_review') ?? feature;
-    const enabled = effectiveApprovalReview(host.session, latestFeature);
-    host.setAppState({ approvalReviewEnabled: enabled });
+    if (
+      host.session !== targetSession ||
+      permissionStateRevision() !== initialRevision
+    )
+      return;
+    await applyPermissionChoice(host, mode);
     host.refreshSlashCommandAutocomplete();
-    host.showNotice(
-      `Auto-review: ${enabled ? 'ON' : 'OFF'}`,
-      `Scope: ${host.session === undefined ? 'global default' : 'current session'}. ` +
-        (enabled
-          ? host.state.appState.permissionMode === 'manual'
-            ? 'Model checks pending tool approvals. Uncertain or failed reviews deny the action without a permission prompt.'
-            : 'Auto-review is enabled but paused in the current permission mode. Select Always Ask to review pending approvals.'
-          : 'Tool approvals return to your selected permission mode.'),
-    );
   } catch (error) {
     host.showError(
       `Failed to change auto-review: ${formatErrorMessage(error)}`,

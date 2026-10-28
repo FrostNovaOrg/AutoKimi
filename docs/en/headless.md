@@ -2,7 +2,7 @@
 
 [English](headless.md) | [简体中文](../headless.md)
 
-AutoKimi 0.3.1 adds an explicit `exec` entry for parent agents, orchestrators and scripts. Plain `autokimi` still opens the TUI; native `-p`, ACP and Web service entries remain disabled. Configure Kimi authentication, the main model and reviewer before calling it. Headless workers do not log in interactively or request human approval.
+AutoKimi 0.4.0 adds an explicit `exec` entry for parent agents, orchestrators and scripts. Plain `autokimi` still opens the TUI; native `-p`, ACP and Web service entries remain disabled. Configure Kimi authentication, the main model and reviewer before calling it. Headless workers do not log in interactively or request human approval.
 
 ## Submit, observe and stop
 
@@ -75,7 +75,7 @@ A lost worker becomes `interrupted/worker_lost`. Recovery uses native SDK histor
 
 ## Permissions and isolation limits
 
-Headless execution forces Always Ask and automatic review. An environment override disabling review fails before model execution. Switching to auto/yolo stops the run. Native deny rules remain effective; side-effect tools ordinarily allowed directly by native rules are sent through review. The limited read-only tool set retains a direct path, subject to budgets, file scope and native deny rules.
+Headless execution forces `review` permission mode. An environment override disabling review fails before model execution. Switching to auto/yolo stops the run. Native deny rules remain effective; side-effect tools ordinarily allowed directly by native rules are sent through review. The limited read-only tool set retains a direct path, subject to budgets, file scope and native deny rules.
 
 `--cwd` grants the file-tool workspace, with real-path and symlink checks and protection for the Kimi home. `--read-only` permits a limited set of read, query and task-local state tools, disabling Bash, writes and MCP. WebSearch, FetchURL and MCP are disabled by default; `--allow-network` admits them to normal permission review. It does not control provider connections. Bash networking additionally requires this flag and permission from the OS sandbox’s `shell_allowed_domains`.
 
@@ -90,3 +90,7 @@ State lives under `<KimiHome>/autokimi/runs/<run-id>/`, with directory mode 0700
 Each run has one worker and each native session one writer, coordinated through local atomic file locks. This is a trusted single-machine protocol, not a remote multi-tenant service. Journals are limited to 32 MiB; final text is capped at 64 KiB with `text_truncated` marking truncation. Reaching the journal limit fails the run. There is no automatic retention policy. After confirming a task has stopped, remove whole run directories according to your policy, retaining required cursors and results. Stop active tasks before replacing or removing their runtime package.
 
 See [verification](verification.md) for tested platforms and [configuration](configuration.md) for model settings and costs.
+
+Older run journals are retained. After upgrading to 0.4.0, if their session is still in legacy storage, use the `session_id` from `runs status --json` with `autokimi session import <id>` before resuming. Import does not reset cumulative run budgets.
+
+In 0.4.0, `session.ready.data.permission` and `runs schema.permissions.mode` are `review`. Strict callers expecting `manual` must accept the new enum. The JSONL protocol version, event cursors and budget format are unchanged.

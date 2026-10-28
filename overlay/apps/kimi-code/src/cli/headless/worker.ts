@@ -6,7 +6,7 @@ import {
   type HeadlessState,
 } from '@moonshot-ai/kimi-code-sdk';
 import { createKimiCodeHostIdentity } from '../version';
-import { privateJson, RunError, RunStore, type RunState } from './store';
+import { privateJson, RunError, RunStore } from './store';
 
 function bounded<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: NodeJS.Timeout;
@@ -164,13 +164,10 @@ export async function runWorker(
     });
     const features = await running(harness.getExperimentalFeatures());
     const feature = features.find((entry) => entry.id === 'approval_review');
-    if (
-      feature?.enabled === false &&
-      (feature.source === 'env' || feature.source === 'master-env')
-    )
+    if (feature?.enabled !== true)
       throw new RunError(
         'review_disabled',
-        'An environment override disables automatic review.',
+        'The approval_review capability is disabled; automatic review is required.',
       );
     if (request.session_id !== undefined)
       releaseSession = store.sessionLease(request.session_id);
@@ -179,9 +176,8 @@ export async function runWorker(
         ? await running(
             harness.createSession({
               workDir: request.work_dir,
-              permission: 'manual',
+              permission: 'review',
               model: request.model,
-              metadata: { autokimi: { approvalReview: true } },
             }),
           )
         : await running(harness.resumeSession({ id: request.session_id }));
@@ -198,17 +194,14 @@ export async function runWorker(
       session.listBackgroundTasks({ activeOnly: true }),
     ))
       inheritedTasks.add(task.taskId);
-    await running(session.setPermission('manual'));
+    await running(session.setPermission('review'));
     if (request.model !== undefined)
       await running(session.setModel(request.model));
-    await running(
-      session.updateMetadata({ autokimi: { approvalReview: true } }),
-    );
     const status = await running(session.getStatus());
-    if (!status.model || status.permission !== 'manual')
+    if (!status.model || status.permission !== 'review')
       throw new RunError(
         'model_not_configured',
-        'A configured model and manual permission mode are required.',
+        'A configured model and Auto Review permission mode are required.',
       );
     state = { ...state, session_id: session.id };
     emit('session.ready', {

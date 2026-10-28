@@ -1,0 +1,1232 @@
+diff --git a/apps/kimi-code/src/cli/sub/session.ts b/apps/kimi-code/src/cli/sub/session.ts
+index e25f572..a52626b 100644
+--- a/apps/kimi-code/src/cli/sub/session.ts
++++ b/apps/kimi-code/src/cli/sub/session.ts
+@@ -9,6 +9,9 @@
+ import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
+ import {
+   createKimiHarness,
++  importKimiSession,
++  listLegacyKimiSessions,
++  resolveKimiHome,
+   type KimiHarness,
+   type ListSessionsOptions,
+   type SessionSummary,
+@@ -65,6 +68,20 @@ export async function handleSessionList(
+ export function registerSessionCommand(parent: Command, deps?: Partial<SessionListDeps>): void {
+   const session = parent.command('session').description('Manage sessions non-interactively.');
+ 
++  session.command('import <id>')
++    .description('Copy a closed legacy Kimi session into AutoKimi without changing the source.')
++    .action(async (id: string) => {
++      const imported = await importKimiSession(resolveKimiHome(), id);
++      process.stdout.write(`Imported ${imported.id}. Resume with autokimi -r ${imported.id}\n`);
++    });
++
++  session.command('legacy-list')
++    .description('List legacy sessions available for explicit import.')
++    .action(async () => {
++      process.stdout.write(`${JSON.stringify(await listLegacyKimiSessions(resolveKimiHome()), null, 2)}\n`);
++    });
++
++
+   session
+     .command('list')
+     .description('List sessions, most recently updated first.')
+diff --git a/apps/kimi-code/src/tui/commands/goal.ts b/apps/kimi-code/src/tui/commands/goal.ts
+index d33d7b6..c573776 100644
+--- a/apps/kimi-code/src/tui/commands/goal.ts
++++ b/apps/kimi-code/src/tui/commands/goal.ts
+@@ -391,6 +391,7 @@ export async function createGoal(
+ 
+   if (
+     host.state.appState.permissionMode === 'manual' ||
++    host.state.appState.permissionMode === 'review' ||
+     host.state.appState.permissionMode === 'yolo'
+   ) {
+     showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective, options);
+@@ -413,7 +414,7 @@ function showGoalStartPermissionPrompt(
+   };
+   host.mountEditorReplacement(
+     new GoalStartPermissionPromptComponent({
+-      mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
++      mode: host.state.appState.permissionMode === 'review' ? 'review' : host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
+       onSelect: (choice) => {
+         if (choice === 'cancel') {
+           cancelStart();
+@@ -435,7 +436,7 @@ async function startGoalWithPermission(
+ ): Promise<void> {
+   const previousMode = host.state.appState.permissionMode;
+   const switched =
+-    choice !== previousMode && (choice === 'auto' || choice === 'yolo');
++    choice !== previousMode && (choice === 'auto' || choice === 'yolo' || choice === 'review' || choice === 'manual');
+   if (switched) {
+     if (!(await setPermissionForGoal(host, choice))) return;
+   }
+diff --git a/apps/kimi-code/src/tui/components/dialogs/goal-start-permission-prompt.ts b/apps/kimi-code/src/tui/components/dialogs/goal-start-permission-prompt.ts
+index 6d67f79..e5aa03f 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/goal-start-permission-prompt.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/goal-start-permission-prompt.ts
+@@ -3,10 +3,11 @@ import {
+   type StartPermissionOption,
+ } from './start-permission-prompt';
+ 
+-export type GoalStartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
++export type GoalStartPermissionChoice =
++  'review' | 'auto' | 'yolo' | 'manual' | 'cancel';
+ 
+ export interface GoalStartPermissionPromptOptions {
+-  readonly mode: 'manual' | 'yolo';
++  readonly mode: 'manual' | 'review' | 'yolo';
+   readonly onSelect: (choice: GoalStartPermissionChoice) => void;
+   readonly onCancel: () => void;
+ }
+@@ -57,14 +58,26 @@ export const GOAL_START_YOLO_OPTIONS: readonly StartPermissionOption[] = [
+   },
+ ];
+ 
+-export function goalStartOptions(mode: 'manual' | 'yolo'): readonly StartPermissionOption[] {
++export function goalStartOptions(
++  mode: 'manual' | 'review' | 'yolo',
++): readonly StartPermissionOption[] {
++  if (mode === 'review')
++    return [
++      {
++        value: 'review',
++        label: 'Keep Auto Review and start',
++        description:
++          'Review tool actions with the configured model. Questions, plans and denied actions can still stop the goal.',
++      },
++      {
++        value: 'cancel',
++        label: 'Do not start',
++        description: 'Return to the input box with your goal command.',
++      },
++    ];
+   return mode === 'yolo' ? GOAL_START_YOLO_OPTIONS : GOAL_START_MANUAL_OPTIONS;
+ }
+ 
+-const MANUAL_OPTIONS = GOAL_START_MANUAL_OPTIONS;
+-
+-const YOLO_OPTIONS = GOAL_START_YOLO_OPTIONS;
+-
+ const MANUAL_NOTICE_LINES = [
+   'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions, and is not suitable for unattended goal work.',
+   'You can go back without losing your command.',
+@@ -79,11 +92,20 @@ export class GoalStartPermissionPromptComponent extends StartPermissionPromptCom
+   constructor(opts: GoalStartPermissionPromptOptions) {
+     super({
+       title:
+-        opts.mode === 'yolo'
+-          ? 'Start a goal in Ask When Needed mode?'
+-          : 'Start a goal with approvals on?',
+-      noticeLines: opts.mode === 'yolo' ? YOLO_NOTICE_LINES : MANUAL_NOTICE_LINES,
+-      options: opts.mode === 'yolo' ? YOLO_OPTIONS : MANUAL_OPTIONS,
++        opts.mode === 'review'
++          ? 'Start a goal in Auto Review mode?'
++          : opts.mode === 'yolo'
++            ? 'Start a goal in Ask When Needed mode?'
++            : 'Start a goal with approvals on?',
++      noticeLines:
++        opts.mode === 'review'
++          ? [
++              'Auto Review checks tool approvals. Human questions and plan confirmations still require your input.',
++            ]
++          : opts.mode === 'yolo'
++            ? YOLO_NOTICE_LINES
++            : MANUAL_NOTICE_LINES,
++      options: goalStartOptions(opts.mode),
+       onSelect: opts.onSelect,
+       onCancel: opts.onCancel,
+     });
+diff --git a/apps/kimi-code/src/tui/components/dialogs/permission-selector.ts b/apps/kimi-code/src/tui/components/dialogs/permission-selector.ts
+index 0ffbec5..78c2742 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/permission-selector.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/permission-selector.ts
+@@ -1,6 +1,9 @@
+ import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+ 
+-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
++import {
++  PERMISSION_MODE_DESCRIPTIONS,
++  PERMISSION_MODE_DISPLAY_NAMES,
++} from '#/tui/utils/permission-mode';
+ 
+ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+ 
+@@ -10,6 +13,11 @@ const PERMISSION_OPTIONS: readonly ChoiceOption[] = [
+     label: PERMISSION_MODE_DISPLAY_NAMES.manual,
+     description: PERMISSION_MODE_DESCRIPTIONS.manual,
+   },
++  {
++    value: 'review',
++    label: PERMISSION_MODE_DISPLAY_NAMES.review,
++    description: PERMISSION_MODE_DESCRIPTIONS.review,
++  },
+   {
+     value: 'yolo',
+     label: PERMISSION_MODE_DISPLAY_NAMES.yolo,
+@@ -23,7 +31,12 @@ const PERMISSION_OPTIONS: readonly ChoiceOption[] = [
+ ];
+ 
+ function isPermissionModeChoice(value: string): value is PermissionMode {
+-  return value === 'manual' || value === 'auto' || value === 'yolo';
++  return (
++    value === 'manual' ||
++    value === 'review' ||
++    value === 'auto' ||
++    value === 'yolo'
++  );
+ }
+ 
+ export interface PermissionSelectorOptions {
+diff --git a/apps/kimi-code/src/tui/components/dialogs/start-permission-prompt.ts b/apps/kimi-code/src/tui/components/dialogs/start-permission-prompt.ts
+index 9b8487d..d141554 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/start-permission-prompt.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/start-permission-prompt.ts
+@@ -10,7 +10,7 @@ import {
+ import { SELECT_POINTER } from '#/tui/constant/symbols';
+ import { currentTheme } from '#/tui/theme';
+ 
+-export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
++export type StartPermissionChoice = 'review' | 'auto' | 'yolo' | 'manual' | 'cancel';
+ 
+ export interface StartPermissionOption<TChoice extends StartPermissionChoice = StartPermissionChoice> {
+   readonly value: TChoice;
+@@ -99,9 +99,9 @@ function styleLabel(label: string, selected: boolean): string {
+ 
+ function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
+   return text
+-    .split(/(\b(?:Always Ask|Ask When Needed|Never Ask)\b)/g)
++    .split(/(\b(?:Always Ask|Auto Review|Ask When Needed|Never Ask)\b)/g)
+     .map((part) => {
+-      if (part === 'Always Ask' || part === 'Ask When Needed' || part === 'Never Ask') return currentTheme.boldFg('textStrong', part);
++      if (part === 'Always Ask' || part === 'Auto Review' || part === 'Ask When Needed' || part === 'Never Ask') return currentTheme.boldFg('textStrong', part);
+       return currentTheme.fg(baseToken, part);
+     })
+     .join('');
+diff --git a/apps/kimi-code/src/tui/utils/permission-mode.ts b/apps/kimi-code/src/tui/utils/permission-mode.ts
+index 6df9eb1..7043ff6 100644
+--- a/apps/kimi-code/src/tui/utils/permission-mode.ts
++++ b/apps/kimi-code/src/tui/utils/permission-mode.ts
+@@ -1,13 +1,20 @@
+ import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+ 
+-export const PERMISSION_MODE_DISPLAY_NAMES: Readonly<Record<PermissionMode, string>> = {
++export const PERMISSION_MODE_DISPLAY_NAMES: Readonly<
++  Record<PermissionMode, string>
++> = {
+   manual: 'Always Ask',
++  review: 'Auto Review',
+   yolo: 'Ask When Needed',
+   auto: 'Never Ask',
+ };
+ 
+-export const PERMISSION_MODE_DESCRIPTIONS: Readonly<Record<PermissionMode, string>> = {
++export const PERMISSION_MODE_DESCRIPTIONS: Readonly<
++  Record<PermissionMode, string>
++> = {
+   manual: 'Auto-read only; everything else needs your approval first.',
++  review:
++    'A separate model reviews pending tool approvals; uncertain or failed reviews deny the action. Questions and plans still ask.',
+   yolo: 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+   auto: 'Never interrupts you; everything runs and is decided automatically.',
+ };
+diff --git a/apps/kimi-code/test/tui/commands/goal.test.ts b/apps/kimi-code/test/tui/commands/goal.test.ts
+index 43ba718..926ba02 100644
+--- a/apps/kimi-code/test/tui/commands/goal.test.ts
++++ b/apps/kimi-code/test/tui/commands/goal.test.ts
+@@ -84,7 +84,7 @@ function makeHost(
+     model?: string;
+     hasSession?: boolean;
+     streaming?: boolean;
+-    permissionMode?: 'manual' | 'auto' | 'yolo';
++    permissionMode?: 'manual' | 'review' | 'auto' | 'yolo';
+   } = {},
+ ) {
+   const session = {
+@@ -365,6 +365,18 @@ describe('handleGoalCommand', () => {
+     expect(text).toContain('Return to the input box with your goal command');
+   });
+ 
++  it('keeps Auto Review when the user confirms starting a goal', async () => {
++    const { host: reviewHost, session: s } = makeHost({ permissionMode: 'review' });
++    await handleGoalCommand(reviewHost, 'Ship feature X');
++    expect(s.createGoal).not.toHaveBeenCalled();
++    const picker = mountedPicker(reviewHost);
++    expect(stripAnsi(picker.render(80).join('\n'))).toContain('Keep Auto Review and start');
++    picker.handleInput(ENTER);
++    await vi.waitFor(() => expect(s.createGoal).toHaveBeenCalled());
++    expect(s.setPermission).not.toHaveBeenCalled();
++    expect(reviewHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
++  });
++
+   it('defaults to Auto when confirming a Manual-mode goal start', async () => {
+     const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
+ 
+diff --git a/apps/kimi-inspect/src/panels.ts b/apps/kimi-inspect/src/panels.ts
+index 12bd83e..38e38a3 100644
+--- a/apps/kimi-inspect/src/panels.ts
++++ b/apps/kimi-inspect/src/panels.ts
+@@ -63,7 +63,7 @@ export interface ServicePanelDef {
+   readonly actions?: readonly PanelAction[];
+ }
+ 
+-const setModeModes = ['manual', 'auto', 'yolo'];
++const setModeModes = ['manual', 'review', 'auto', 'yolo'];
+ 
+ export const CORE_PANELS: readonly ServicePanelDef[] = [
+   {
+diff --git a/packages/agent-core-v2/docs/state-manifest.d.ts b/packages/agent-core-v2/docs/state-manifest.d.ts
+index 4165769..b2cdc18 100644
+--- a/packages/agent-core-v2/docs/state-manifest.d.ts
++++ b/packages/agent-core-v2/docs/state-manifest.d.ts
+@@ -27,7 +27,7 @@
+ // references become '(circular)', and class instances collapse to a '(ClassName)'
+ // marker — the wire shape of an entry is the JSON projection of the type here.
+ //
+-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 74 keys)
++// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 75 keys)
+ //   App
+ //   Workspace
+ //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
+@@ -82,6 +82,7 @@
+ //     permissionMode                                  src/agent/permissionMode/permissionModeOps.ts
+ //     permissionMode.configured                       src/agent/permissionMode/permissionModeOps.ts
+ //     permissionMode.lastMode                         src/agent/permissionMode/injection/permissionModeInjection.ts
++//     permissionMode.version                          src/agent/permissionMode/permissionModeOps.ts
+ //     permissionRules                                 src/agent/permissionRules/permissionRulesOps.ts
+ //     plan                                            src/features/plan/planOps.ts
+ //     plan.wasActive                                  src/features/plan/injection/planModeInjection.ts
+@@ -937,7 +938,7 @@ export interface AgentStateSnapshot {
+       kind: 'goal_start';
+       objective: string;
+       completionCriterion?: string;
+-      mode: 'manual' | 'yolo';
++      mode: 'manual' | 'review' | 'yolo';
+     } | {
+       kind: 'generic';
+       summary: string;
+@@ -1099,12 +1100,14 @@ export interface AgentStateSnapshot {
+   // src/agent/media/mediaToolsRegistrar.ts
+   'media.registeredKey': string | undefined;
+   // src/agent/permissionMode/injection/permissionModeInjection.ts
+-  'permissionMode.lastMode': 'manual' | 'yolo' | 'auto' | undefined;
++  'permissionMode.lastMode': 'manual' | 'review' | 'yolo' | 'auto' | undefined;
+   // src/agent/permissionMode/permissionModeOps.ts
+   // replayable · durable — folds: PermissionSetMode
+-  'permissionMode': /* PermissionMode — packages/agent-core-v2/src/agent/permissionPolicy/types.ts */ 'manual' | 'yolo' | 'auto';
++  'permissionMode': /* PermissionMode — packages/agent-core-v2/src/agent/permissionPolicy/types.ts */ 'manual' | 'review' | 'yolo' | 'auto';
+   // replayable · durable — folds: PermissionSetMode
+   'permissionMode.configured': boolean;
++  // replayable · durable — folds: PermissionSetMode
++  'permissionMode.version': number;
+   // src/agent/permissionRules/permissionRulesOps.ts
+   // replayable · durable — folds: PermissionRulesAdd, PermissionRecordApprovalResult
+   'permissionRules': /* PermissionRulesModelState — packages/agent-core-v2/src/agent/permissionRules/permissionRulesOps.ts */ {
+diff --git a/packages/agent-core-v2/docs/wire-manifest.d.ts b/packages/agent-core-v2/docs/wire-manifest.d.ts
+index 07f773e..bf0df59 100644
+--- a/packages/agent-core-v2/docs/wire-manifest.d.ts
++++ b/packages/agent-core-v2/docs/wire-manifest.d.ts
+@@ -51,7 +51,7 @@
+ //   llm.tools_snapshot                 llm.requestTrace                                                               src/agent/llmRequester/llmRequestOps.ts
+ //   mcp.tools_discovered               mcp.discovery                                                                  src/agent/mcp/mcpDiscoveryOps.ts
+ //   permission.record_approval_result  permissionRules                                                                src/agent/permissionRules/permissionRulesOps.ts
+-//   permission.set_mode                permissionMode, permissionMode.configured                                      src/agent/permissionMode/permissionModeOps.ts
++//   permission.set_mode                permissionMode, permissionMode.configured, permissionMode.version              src/agent/permissionMode/permissionModeOps.ts
+ //   plan_mode.cancel                   plan                                                                           src/features/plan/planOps.ts
+ //   plan_mode.enter                    plan                                                                           src/features/plan/planOps.ts
+ //   plan_mode.exit                     plan                                                                           src/features/plan/planOps.ts
+@@ -462,14 +462,15 @@ interface PermissionRecordApprovalResultPayload {
+ }
+ 
+ /**
+- * states: permissionMode, permissionMode.configured
++ * states: permissionMode, permissionMode.configured, permissionMode.version
+  * owner: src/agent/permissionMode/permissionModeOps.ts
+  */
+ interface PermissionSetModePayload {
+   _name: 'permission.set_mode';
+   agentId: string;
+   /** PermissionMode */
+-  mode: 'manual' | 'yolo' | 'auto';
++  mode: 'manual' | 'review' | 'yolo' | 'auto';
++  version?: z.number().int();
+ }
+ 
+ /**
+diff --git a/packages/agent-core-v2/src/agent/permissionMode/configSection.ts b/packages/agent-core-v2/src/agent/permissionMode/configSection.ts
+index 7a6eb46..187707b 100644
+--- a/packages/agent-core-v2/src/agent/permissionMode/configSection.ts
++++ b/packages/agent-core-v2/src/agent/permissionMode/configSection.ts
+@@ -6,4 +6,19 @@ export const DEFAULT_PERMISSION_MODE_SECTION = 'defaultPermissionMode';
+ 
+ export const DefaultPermissionModeSchema = z.enum(['manual', 'auto', 'yolo']);
+ 
+-registerConfigSection(DEFAULT_PERMISSION_MODE_SECTION, DefaultPermissionModeSchema);
++registerConfigSection(
++  DEFAULT_PERMISSION_MODE_SECTION,
++  DefaultPermissionModeSchema,
++);
++
++export const AUTOKIMI_PERMISSION_MODE_SECTION = 'autokimiPermissionMode';
++export const AutoKimiPermissionModeSchema = z.enum([
++  'manual',
++  'review',
++  'yolo',
++  'auto',
++]);
++registerConfigSection(
++  AUTOKIMI_PERMISSION_MODE_SECTION,
++  AutoKimiPermissionModeSchema,
++);
+diff --git a/packages/agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts b/packages/agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts
+index 4b38e2d..d9241b2 100644
+--- a/packages/agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts
++++ b/packages/agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts
+@@ -5,15 +5,15 @@ import type { ContextInjectionContext } from '#/features/reminder/types';
+ import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+ import type { PermissionMode } from '#/agent/permissionPolicy/types';
+ import { IAgentStateService } from '#/agent/state/agentState';
++import REVIEW_MODE_REMINDER from './permission-mode-review-reminder.md?raw';
+ import AUTO_MODE_ENTER_REMINDER from './permission-mode-auto-enter-reminder.md?raw';
+ import AUTO_MODE_EXIT_REMINDER from './permission-mode-auto-exit-reminder.md?raw';
+ 
+ const PERMISSION_MODE_INJECTION_VARIANT = 'permission_mode';
+ 
+-export const permissionModeLastModeKey = defineState<PermissionMode | undefined>(
+-  'permissionMode.lastMode',
+-  () => undefined as PermissionMode | undefined,
+-);
++export const permissionModeLastModeKey = defineState<
++  PermissionMode | undefined
++>('permissionMode.lastMode', () => undefined as PermissionMode | undefined);
+ 
+ export class PermissionModeInjection extends Service {
+   constructor(
+@@ -24,7 +24,9 @@ export class PermissionModeInjection extends Service {
+     super();
+     this.states.contributeState(permissionModeLastModeKey);
+     this._register(
+-      injector.register(PERMISSION_MODE_INJECTION_VARIANT, (ctx) => this.reminder(ctx)),
++      injector.register(PERMISSION_MODE_INJECTION_VARIANT, (ctx) =>
++        this.reminder(ctx),
++      ),
+     );
+   }
+ 
+@@ -36,14 +38,19 @@ export class PermissionModeInjection extends Service {
+     this.states.set(permissionModeLastModeKey, value);
+   }
+ 
+-  private reminder({ injectedPositions }: ContextInjectionContext): string | undefined {
++  private reminder({
++    injectedPositions,
++  }: ContextInjectionContext): string | undefined {
+     const currentMode = this.permissionMode.mode;
+     const previousMode = this.lastMode;
+     if (currentMode === previousMode) {
+-      if (injectedPositions.length > 0 || currentMode !== 'auto') return undefined;
++      if (injectedPositions.length > 0) return undefined;
++      if (currentMode === 'review') return REVIEW_MODE_REMINDER;
++      if (currentMode !== 'auto') return undefined;
+       return AUTO_MODE_ENTER_REMINDER;
+     }
+     this.lastMode = currentMode;
++    if (currentMode === 'review') return REVIEW_MODE_REMINDER;
+     if (currentMode === 'auto') return AUTO_MODE_ENTER_REMINDER;
+     if (previousMode === 'auto') return AUTO_MODE_EXIT_REMINDER;
+     return undefined;
+diff --git a/packages/agent-core-v2/src/agent/permissionMode/permissionMode.ts b/packages/agent-core-v2/src/agent/permissionMode/permissionMode.ts
+index aaae863..eba3e24 100644
+--- a/packages/agent-core-v2/src/agent/permissionMode/permissionMode.ts
++++ b/packages/agent-core-v2/src/agent/permissionMode/permissionMode.ts
+@@ -1,4 +1,4 @@
+-import { createDecorator } from "#/_base/di/instantiation";
++import { createDecorator } from '#/_base/di/instantiation';
+ import type { Event } from '#/_base/event';
+ import type { PermissionMode } from '#/agent/permissionPolicy/types';
+ 
+@@ -11,6 +11,7 @@ export interface IAgentPermissionModeService {
+   readonly _serviceBrand: undefined;
+ 
+   readonly mode: PermissionMode;
++  readonly revision: number;
+   setMode(mode: PermissionMode): void;
+   setModeAndBroadcast(mode: PermissionMode): void;
+ 
+diff --git a/packages/agent-core-v2/src/agent/permissionMode/permissionModeOps.ts b/packages/agent-core-v2/src/agent/permissionMode/permissionModeOps.ts
+index efceeb8..63c4661 100644
+--- a/packages/agent-core-v2/src/agent/permissionMode/permissionModeOps.ts
++++ b/packages/agent-core-v2/src/agent/permissionMode/permissionModeOps.ts
+@@ -8,9 +8,12 @@ import { defineState } from '#/state/state';
+ const permissionSetModeSchema = z.object({
+   agentId: z.string(),
+   mode: z.custom<PermissionMode>(),
++  version: z.number().int().optional(),
+ });
+ 
+-export class PermissionSetMode extends AgentEvent2<z.infer<typeof permissionSetModeSchema>> {
++export class PermissionSetMode extends AgentEvent2<
++  z.infer<typeof permissionSetModeSchema>
++> {
+   static override readonly type = 'permission.set_mode';
+   static override readonly durable = true;
+   static override readonly schema = permissionSetModeSchema;
+@@ -18,12 +21,23 @@ export class PermissionSetMode extends AgentEvent2<z.infer<typeof permissionSetM
+ export interface PermissionSetMode {
+   readonly agentId: string;
+   readonly mode: PermissionMode;
++  readonly version?: number;
+ }
+ 
+-export const permissionModeKey = defineState('permissionMode', (): PermissionMode => 'manual')
++export const permissionModeKey = defineState(
++  'permissionMode',
++  (): PermissionMode => 'manual',
++)
+   .replayable({ schema: z.custom<PermissionMode>() })
+   .on(PermissionSetMode, (_s, e) => e.mode);
+ 
++export const permissionModeVersionKey = defineState(
++  'permissionMode.version',
++  () => 0,
++)
++  .replayable({ schema: z.number() })
++  .on(PermissionSetMode, (_s, e) => e.version ?? 1);
++
+ export const permissionModeConfiguredKey = defineState(
+   'permissionMode.configured',
+   (): boolean => false,
+diff --git a/packages/agent-core-v2/src/agent/permissionPolicy/types.ts b/packages/agent-core-v2/src/agent/permissionPolicy/types.ts
+index 57cdec8..9f78590 100644
+--- a/packages/agent-core-v2/src/agent/permissionPolicy/types.ts
++++ b/packages/agent-core-v2/src/agent/permissionPolicy/types.ts
+@@ -3,7 +3,7 @@ import type { ExecutableToolResult } from '#/tool/toolContract';
+ import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+ import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
+ 
+-export type PermissionMode = 'manual' | 'yolo' | 'auto';
++export type PermissionMode = 'manual' | 'review' | 'yolo' | 'auto';
+ 
+ 
+ export interface ApprovalRequest {
+diff --git a/packages/agent-core-v2/src/app/bootstrap/bootstrapService.ts b/packages/agent-core-v2/src/app/bootstrap/bootstrapService.ts
+index 440a087..92f1306 100644
+--- a/packages/agent-core-v2/src/app/bootstrap/bootstrapService.ts
++++ b/packages/agent-core-v2/src/app/bootstrap/bootstrapService.ts
+@@ -42,15 +42,15 @@ export class BootstrapService implements IBootstrapService {
+     this.configPath = options.configPath;
+     this.clientIdentity = options.clientIdentity;
+     this.args = options.args;
+-    this.sessionsDir = join(options.homeDir, 'sessions');
++    this.sessionsDir = join(options.homeDir, 'autokimi', 'sessions');
+     this.blobsDir = join(options.homeDir, 'blobs');
+-    this.storeDir = join(options.homeDir, 'store');
+-    this.cacheDir = join(options.homeDir, 'cache');
++    this.storeDir = join(options.homeDir, 'autokimi', 'store');
++    this.cacheDir = join(options.homeDir, 'autokimi', 'cache');
+     this.logsDir = join(options.homeDir, 'logs');
+     this.configKey = basename(options.configPath);
+     this.scopes = {
+       config: '',
+-      sessions: relative(options.homeDir, join(options.homeDir, 'sessions')),
++      sessions: relative(options.homeDir, join(options.homeDir, 'autokimi', 'sessions')),
+       blobs: relative(options.homeDir, this.blobsDir),
+       store: relative(options.homeDir, this.storeDir),
+       logs: relative(options.homeDir, this.logsDir),
+diff --git a/packages/agent-core-v2/src/app/sessionLegacy/sessionProtocol.ts b/packages/agent-core-v2/src/app/sessionLegacy/sessionProtocol.ts
+index db80227..9b661a4 100644
+--- a/packages/agent-core-v2/src/app/sessionLegacy/sessionProtocol.ts
++++ b/packages/agent-core-v2/src/app/sessionLegacy/sessionProtocol.ts
+@@ -18,7 +18,7 @@ export type SessionWarningsResponse = z.infer<typeof sessionWarningsResponseSche
+ export const promptThinkingSchema = z.string().min(1);
+ export type PromptThinking = z.infer<typeof promptThinkingSchema>;
+ 
+-export const promptPermissionModeSchema = z.enum(['manual', 'yolo', 'auto']);
++export const promptPermissionModeSchema = z.enum(['manual', 'review', 'yolo', 'auto']);
+ export type PromptPermissionMode = z.infer<typeof promptPermissionModeSchema>;
+ 
+ export const sessionMetadataSchema = z
+diff --git a/packages/agent-core-v2/src/app/telemetry/events.ts b/packages/agent-core-v2/src/app/telemetry/events.ts
+index 90e68be..0256bf0 100644
+--- a/packages/agent-core-v2/src/app/telemetry/events.ts
++++ b/packages/agent-core-v2/src/app/telemetry/events.ts
+@@ -161,7 +161,7 @@ export interface AfkToggleEvent {
+   enabled: boolean;
+ }
+ 
+-export type TelemetryPermissionMode = 'manual' | 'yolo' | 'auto';
++export type TelemetryPermissionMode = 'manual' | 'review' | 'yolo' | 'auto';
+ 
+ export interface PermissionPolicyDecisionEvent {
+   turn_id: number;
+diff --git a/packages/agent-core-v2/src/app/workspace/fileWorkspacePersistence.ts b/packages/agent-core-v2/src/app/workspace/fileWorkspacePersistence.ts
+index e8d35de..689d40f 100644
+--- a/packages/agent-core-v2/src/app/workspace/fileWorkspacePersistence.ts
++++ b/packages/agent-core-v2/src/app/workspace/fileWorkspacePersistence.ts
+@@ -19,7 +19,7 @@ import {
+ } from './workspacePersistence';
+ 
+ const WORKSPACE_CATALOG_VERSION = 1;
+-const WORKSPACE_CATALOG_SCOPE = '';
++const WORKSPACE_CATALOG_SCOPE = 'autokimi';
+ const WORKSPACE_CATALOG_KEY = 'workspaces.json';
+ const WATCH_DEBOUNCE_MS = 150;
+ 
+@@ -35,7 +35,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
+     @IBootstrapService private readonly bootstrap: IBootstrapService,
+   ) {
+     super();
+-    const catalogFile = join(this.bootstrap.homeDir, WORKSPACE_CATALOG_KEY);
++    const catalogFile = join(this.bootstrap.homeDir, WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY);
+     const handle = watchCandidates(this.bootstrap.homeDir, [catalogFile]);
+     this._register(handle);
+     this._register(
+diff --git a/packages/agent-core-v2/src/app/workspace/workspaceAlias.ts b/packages/agent-core-v2/src/app/workspace/workspaceAlias.ts
+index 59aa66b..0bebe24 100644
+--- a/packages/agent-core-v2/src/app/workspace/workspaceAlias.ts
++++ b/packages/agent-core-v2/src/app/workspace/workspaceAlias.ts
+@@ -6,7 +6,7 @@ import type { IFileSystemStorageService } from '#/persistence/interface/storage'
+ 
+ import type { Workspace } from './workspace';
+ 
+-export const SESSION_INDEX_SCOPE = '';
++export const SESSION_INDEX_SCOPE = 'autokimi';
+ export const SESSION_INDEX_KEY = 'session_index.jsonl';
+ 
+ export const SESSION_INDEX_COMPACTION_MIN_STALE = 16;
+diff --git a/packages/agent-core-v2/src/features/goal/goalService.ts b/packages/agent-core-v2/src/features/goal/goalService.ts
+index 994d5ac..d504bd5 100644
+--- a/packages/agent-core-v2/src/features/goal/goalService.ts
++++ b/packages/agent-core-v2/src/features/goal/goalService.ts
+@@ -1016,7 +1016,7 @@ function isGoalMutationTool(toolName: string): boolean {
+ }
+ 
+ function toGoalStartReviewPermissionMode(label: string | undefined): PermissionMode | undefined {
+-  if (label === 'auto' || label === 'yolo' || label === 'manual') return label;
++  if (label === 'auto' || label === 'review' || label === 'yolo' || label === 'manual') return label;
+   return undefined;
+ }
+ 
+diff --git a/packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts b/packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts
+index 821fd85..8a44a2c 100644
+--- a/packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts
++++ b/packages/agent-core-v2/src/features/swarm/session/sessionSwarmService.ts
+@@ -291,7 +291,8 @@ export class SessionSwarmService implements ISessionSwarmService {
+         details: { agentId },
+       });
+     }
+-    if (!hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
++    if (caller.accessor.get(IAgentPermissionModeService).mode === 'review' ||
++      !hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
+       rebuilt.accessor
+         .get(IAgentPermissionModeService)
+         .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
+diff --git a/packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts b/packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts
+index 0b6a32f..e9bf12c 100644
+--- a/packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts
++++ b/packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts
+@@ -397,7 +397,9 @@ export class TowerSpawnTool implements ITowerSpawnTool {
+         : wrapSubagentModelError(error, binding.model, this.profile.data().modelAlias);
+     }
+     const created = this.agentLifecycle.handleOf(createdContext.agentId)!;
+-    created.accessor.get(IAgentPermissionModeService).setMode('auto');
++    created.accessor.get(IAgentPermissionModeService).setMode(
++      requester.accessor.get(IAgentPermissionModeService).mode === 'review' ? 'review' : 'auto',
++    );
+     const agentId = createdContext.agentId;
+ 
+     emitAgentRunSpawned(requester, agentId, {
+diff --git a/packages/agent-core-v2/src/persistence/backends/node-fs/sessionLockService.ts b/packages/agent-core-v2/src/persistence/backends/node-fs/sessionLockService.ts
+index 5375e91..76a713b 100644
+--- a/packages/agent-core-v2/src/persistence/backends/node-fs/sessionLockService.ts
++++ b/packages/agent-core-v2/src/persistence/backends/node-fs/sessionLockService.ts
+@@ -73,7 +73,7 @@ export class SessionLockService extends SessionLockHolds {
+     @ILogService private readonly log: ILogService,
+   ) {
+     super();
+-    this.lockDir = join(bootstrap.homeDir, 'locks', 'sessions');
++    this.lockDir = join(bootstrap.homeDir, 'autokimi', 'locks', 'sessions');
+     this.hostname = os.hostname();
+     this.clientIdentity = bootstrap.clientIdentity.platform || bootstrap.clientIdentity.productName;
+     this.clientDisplayName =
+diff --git a/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts b/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
+index 8939db9..76eec4f 100644
+--- a/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
++++ b/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiHeadless } from '#/app/autokimiHeadless/control';
+ import { join } from 'pathe';
+ 
+ import { IInstantiationService } from '#/_base/di/instantiation';
+@@ -18,8 +19,10 @@ import {
+ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+ import { IConfigService } from '#/app/config/config';
+ import { ISessionEventBus } from '#/app/event/eventBus';
+-import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+-import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
++import { IFlagService } from '#/app/flag/flag';
++import { APPROVAL_REVIEW_FLAG } from '#/agent/approvalReview/config';
++import { AUTOKIMI_PERMISSION_MODE_SECTION, DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
++import { permissionModeConfiguredKey, permissionModeVersionKey } from '#/agent/permissionMode/permissionModeOps';
+ import type { PermissionMode } from '#/agent/permissionPolicy/types';
+ import { profileKey } from '#/agent/profile/profileOps';
+ import { hasPinnedPermissionMode } from '#/features/tower/tower';
+@@ -131,6 +134,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+     @IBlobStore private readonly blobStore: IBlobStore,
+     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
+     @ILogService private readonly logger: ILogService,
++    @IAutoKimiHeadless private readonly headless?: IAutoKimiHeadless,
+   ) {
+     super();
+     setRootActorErrorReporter((err) => {
+@@ -346,6 +350,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+       this.onDidCreateEmitter.fire(agent);
+       didCreate = true;
+       this.onDidCreateScopeEmitter.fire({ context: agent, handle, meta });
++      handle.accessor.get(IAgentPermissionModeService);
+       stage = 'restore';
+       await handle.accessor.get(IEventDispatcher).restore();
+       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
+@@ -402,12 +407,28 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+     if (opts.binding !== undefined) {
+       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
+     }
+-    const permissionMode = this.config.get<PermissionMode>(DEFAULT_PERMISSION_MODE_SECTION);
+-    const hasRestoredPermissionMode = handle.accessor
+-      .get(IAgentStateService)
+-      .get(permissionModeConfiguredKey);
+-    if (permissionMode !== undefined && !hasRestoredPermissionMode) {
+-      handle.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
++    const state = handle.accessor.get(IAgentStateService);
++    const mode = handle.accessor.get(IAgentPermissionModeService);
++    if (this.headless?.active) {
++      mode.setMode('review');
++      return;
++    }
++    const restored = state.get(permissionModeConfiguredKey);
++    const ownDefault = this.config.get<PermissionMode | undefined>(AUTOKIMI_PERMISSION_MODE_SECTION);
++    const legacyDefault = this.config.get<PermissionMode | undefined>(DEFAULT_PERMISSION_MODE_SECTION);
++    const custom = this.sessionMetadata.snapshot?.()?.custom?.['autokimi'];
++    const legacyOverride = typeof custom === 'object' && custom !== null && !Array.isArray(custom)
++      ? (custom as Record<string, unknown>)['approvalReview'] : undefined;
++    const feature = handle.accessor.get(IFlagService).explain(APPROVAL_REVIEW_FLAG);
++    const legacyReview = feature?.source === 'env' || feature?.source === 'master-env'
++      ? feature.enabled : typeof legacyOverride === 'boolean'
++        ? legacyOverride : feature?.source === 'config' && feature.enabled;
++    if (!restored) {
++      const selected = ownDefault ?? (legacyReview && (legacyDefault ?? mode.mode) === 'manual'
++        ? 'review' : legacyDefault ?? mode.mode);
++      mode.setMode(selected);
++    } else if (state.get(permissionModeVersionKey) < 2) {
++      mode.setMode(mode.mode === 'manual' && legacyReview ? 'review' : mode.mode);
+     }
+   }
+ 
+@@ -436,6 +457,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+     });
+     const child = this.requireManaged(childContext).handle;
+ 
++    child.accessor.get(IAgentPermissionModeService).setMode(
++      source.accessor.get(IAgentPermissionModeService).mode,
++    );
+     const childProfile = child.accessor.get(IAgentProfileService);
+     if (override?.profile !== undefined) {
+       await childProfile.bind({
+@@ -477,7 +501,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+     for (const managed of this.roster.values()) {
+       if (managed.closing || !managed.active) continue;
+       const handle = managed.handle;
+-      if (hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
++      if (mode !== 'review' && handle.accessor.get(IAgentPermissionModeService).mode !== 'review' && hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
+         continue;
+       }
+       handle.accessor.get(IAgentPermissionModeService).setMode(mode);
+diff --git a/packages/agent-core-v2/src/tool/toolInputDisplay.ts b/packages/agent-core-v2/src/tool/toolInputDisplay.ts
+index 7026316..6c219c9 100644
+--- a/packages/agent-core-v2/src/tool/toolInputDisplay.ts
++++ b/packages/agent-core-v2/src/tool/toolInputDisplay.ts
+@@ -69,7 +69,7 @@ export type ToolInputDisplay =
+       kind: 'goal_start';
+       objective: string;
+       completionCriterion?: string | undefined;
+-      mode: 'manual' | 'yolo';
++      mode: 'manual' | 'review' | 'yolo';
+     }
+   | {
+       kind: 'generic';
+diff --git a/packages/agent-core-v2/src/workspace/sessionLifecycle/sessionLifecycleService.ts b/packages/agent-core-v2/src/workspace/sessionLifecycle/sessionLifecycleService.ts
+index b3eab53..90a33f1 100644
+--- a/packages/agent-core-v2/src/workspace/sessionLifecycle/sessionLifecycleService.ts
++++ b/packages/agent-core-v2/src/workspace/sessionLifecycle/sessionLifecycleService.ts
+@@ -331,7 +331,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
+ 
+   private async appendSessionIndexEntry(sessionId: string, workDir: string): Promise<void> {
+     const sessionDir = sessionDirOf(this.bootstrap.homeDir, this.handlerScope, sessionId);
+-    this.appendLogStore.append('', 'session_index.jsonl', {
++    this.appendLogStore.append('autokimi', 'session_index.jsonl', {
+       sessionId,
+       sessionDir,
+       workDir,
+@@ -489,7 +489,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
+       await this.hostFs.remove(sessionDirOf(this.bootstrap.homeDir, this.handlerScope, sessionId));
+       await this.index.remove(sessionId);
+       await dropFileHistorySession({ docs: this.docs, workspaceId: this.workspaceId, sessionId });
+-      this.appendLogStore.append('', 'session_index.jsonl', { sessionId, deleted: true });
++      this.appendLogStore.append('autokimi', 'session_index.jsonl', { sessionId, deleted: true });
+       await this.appendLogStore.flush();
+       this.event.publish(
+         new SessionDeleted({
+diff --git a/packages/agent-core-v2/test/agent/permissionMode/permissionMode.test.ts b/packages/agent-core-v2/test/agent/permissionMode/permissionMode.test.ts
+index 4ba6a92..c2a3370 100644
+--- a/packages/agent-core-v2/test/agent/permissionMode/permissionMode.test.ts
++++ b/packages/agent-core-v2/test/agent/permissionMode/permissionMode.test.ts
+@@ -153,12 +153,24 @@ describe('AgentPermissionModeService (wire-backed)', () => {
+         type: 'permission.set_mode',
+         agentId: 'test-agent',
+         mode: 'auto',
++        version: 2,
+         time: expect.any(Number),
+       },
+     ]);
+     expect('payload' in records[0]!).toBe(false);
+   });
+ 
++  it('persists review as its own mode and increments the authorization revision across a round trip', async () => {
++    svc.setMode('review');
++    const first = svc.revision;
++    svc.setMode('manual');
++    svc.setMode('review');
++    expect(svc.revision).toBeGreaterThan(first);
++    expect(svc.mode).toBe('review');
++    expect(await readRecords()).toContainEqual(expect.objectContaining({ type: 'permission.set_mode', mode: 'review', version: 2 }));
++    expect(await runRegisteredInjection()).toContain('Auto Review permission mode is active');
++  });
++
+   it('publishes agent.status.updated with the permission slice on setMode', () => {
+     svc.setMode('auto');
+     svc.setMode('yolo');
+@@ -177,6 +189,7 @@ describe('AgentPermissionModeService (wire-backed)', () => {
+         type: 'permission.set_mode',
+         agentId: 'test-agent',
+         mode: 'manual',
++        version: 2,
+         time: expect.any(Number),
+       },
+     ]);
+diff --git a/packages/agent-core-v2/test/agent/permissionMode/stubs.ts b/packages/agent-core-v2/test/agent/permissionMode/stubs.ts
+index aea162d..b5d4f7d 100644
+--- a/packages/agent-core-v2/test/agent/permissionMode/stubs.ts
++++ b/packages/agent-core-v2/test/agent/permissionMode/stubs.ts
+@@ -10,6 +10,7 @@ export function stubPermissionModeService(
+ ): IAgentPermissionModeService {
+   return {
+     _serviceBrand: undefined,
++    revision: 0,
+     get mode() {
+       return mode();
+     },
+diff --git a/packages/agent-core-v2/test/app/bootstrap/bootstrapService.test.ts b/packages/agent-core-v2/test/app/bootstrap/bootstrapService.test.ts
+index 5e91cf4..38b41ac 100644
+--- a/packages/agent-core-v2/test/app/bootstrap/bootstrapService.test.ts
++++ b/packages/agent-core-v2/test/app/bootstrap/bootstrapService.test.ts
+@@ -33,7 +33,11 @@ describe('BootstrapService (scoped)', () => {
+     const svc = host.app.accessor.get(IBootstrapService);
+     expect(svc.homeDir).toBe('/tmp/kimi-home');
+     expect(svc.configPath).toBe('/tmp/kimi-home/config.toml');
+-    expect(svc.scope('sessions')).toBe('sessions');
++    expect(svc.scope('sessions')).toBe('autokimi/sessions');
++    expect(svc.cacheDir).toBe('/tmp/kimi-home/autokimi/cache');
++    expect(svc.storeDir).toBe('/tmp/kimi-home/autokimi/store');
++    expect(svc.scope('config')).toBe('');
++    expect(svc.scope('credentials')).toBe('credentials');
+     host.dispose();
+   });
+ 
+diff --git a/packages/agent-core-v2/test/features/goal/goal.test.ts b/packages/agent-core-v2/test/features/goal/goal.test.ts
+index 55bb424..48b4ed6 100644
+--- a/packages/agent-core-v2/test/features/goal/goal.test.ts
++++ b/packages/agent-core-v2/test/features/goal/goal.test.ts
+@@ -1,3 +1,4 @@
++import { IAutoKimiSandbox } from '#/app/autokimiSandbox/sandbox';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { PassThrough, Readable, type Writable } from 'node:stream';
+ 
+@@ -2596,6 +2597,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
+     const sh = controllableSpawn();
+     const ctx = createTestAgent(
+       execEnvServices({ processRunner: { spawn: sh.spawn } }),
++      appService(IAutoKimiSandbox, { wrap: async () => undefined } as unknown as IAutoKimiSandbox),
+       permissionModeServices('yolo'),
+     );
+     try {
+@@ -2704,6 +2706,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
+     const sh = controllableSpawn();
+     const ctx = createTestAgent(
+       execEnvServices({ processRunner: { spawn: sh.spawn } }),
++      appService(IAutoKimiSandbox, { wrap: async () => undefined } as unknown as IAutoKimiSandbox),
+       permissionModeServices('yolo'),
+     );
+     try {
+@@ -2765,6 +2768,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
+     const sh = controllableSpawn();
+     const ctx = createTestAgent(
+       execEnvServices({ processRunner: { spawn: sh.spawn } }),
++      appService(IAutoKimiSandbox, { wrap: async () => undefined } as unknown as IAutoKimiSandbox),
+       permissionModeServices('yolo'),
+     );
+     try {
+diff --git a/packages/agent-core-v2/test/features/plan/tools/exit-plan-mode.test.ts b/packages/agent-core-v2/test/features/plan/tools/exit-plan-mode.test.ts
+index 8216c36..3455dcf 100644
+--- a/packages/agent-core-v2/test/features/plan/tools/exit-plan-mode.test.ts
++++ b/packages/agent-core-v2/test/features/plan/tools/exit-plan-mode.test.ts
+@@ -57,6 +57,7 @@ function permissionMode(mode: PermissionMode = 'auto'): IAgentPermissionModeServ
+   return {
+     _serviceBrand: undefined,
+     mode,
++    revision: 0,
+     setMode: () => {},
+     setModeAndBroadcast: () => {},
+     onDidChangeMode: () => ({ dispose: () => {} }),
+diff --git a/packages/agent-core-v2/test/features/plan/tools/plan-tools-telemetry.test.ts b/packages/agent-core-v2/test/features/plan/tools/plan-tools-telemetry.test.ts
+index 51b4ee9..649a3b4 100644
+--- a/packages/agent-core-v2/test/features/plan/tools/plan-tools-telemetry.test.ts
++++ b/packages/agent-core-v2/test/features/plan/tools/plan-tools-telemetry.test.ts
+@@ -63,6 +63,7 @@ function permissionMode(): IAgentPermissionModeService {
+   return {
+     _serviceBrand: undefined,
+     mode: 'auto',
++    revision: 0,
+     setMode: () => {},
+     setModeAndBroadcast: () => {},
+     onDidChangeMode: () => ({ dispose: () => {} }),
+diff --git a/packages/agent-core-v2/test/features/swarm/sessionSwarm.test.ts b/packages/agent-core-v2/test/features/swarm/sessionSwarm.test.ts
+index da508ca..bec4ace 100644
+--- a/packages/agent-core-v2/test/features/swarm/sessionSwarm.test.ts
++++ b/packages/agent-core-v2/test/features/swarm/sessionSwarm.test.ts
+@@ -2214,6 +2214,7 @@ function agentHandle(
+   const permissionMode = {
+     _serviceBrand: undefined,
+     mode: 'auto',
++    revision: 0,
+     setMode: () => {},
+     setModeAndBroadcast: () => {},
+     onDidChangeMode: Event.None,
+diff --git a/packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts b/packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts
+index 2ac2b16..4206163 100644
+--- a/packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts
++++ b/packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts
+@@ -47,6 +47,7 @@ import { stubAgentContext } from '../../../agent/agentContext/stubs';
+ 
+ const execFileAsync = promisify(execFile);
+ const signal = new AbortController().signal;
++let callerPermission: PermissionMode = 'manual';
+ 
+ interface Deferred<T> {
+   readonly promise: Promise<T>;
+@@ -168,11 +169,12 @@ describe('TowerSpawnTool', () => {
+         },
+       },
+     } as never;
++    callerPermission = 'manual';
+     const mainHandle = {
+       id: 'main',
+       accessor: {
+         get: (id: unknown) =>
+-          id === (IEventBus as unknown)
++          id === (IAgentPermissionModeService as unknown) ? { mode: callerPermission } : id === (IEventBus as unknown)
+             ? ix.get(IEventBus)
+             : id === (IAgentLifecycleService as unknown)
+               ? { list: () => [], handleOf: () => undefined }
+@@ -447,6 +449,13 @@ describe('TowerSpawnTool', () => {
+     expect(createdSetMode).toHaveBeenCalledWith('auto');
+   });
+ 
++  it('inherits Auto Review instead of forcing Never Ask', async () => {
++    callerPermission = 'review';
++    const result = await execute(WORKER_ARGS);
++    expect(result.isError).toBeUndefined();
++    expect(createdSetMode).toHaveBeenCalledWith('review');
++  });
++
+   it('carries the bound model and the spawned agent thinking effort into the registered task info', async () => {
+     createdThinkingEffort = 'high';
+ 
+diff --git a/packages/agent-core-v2/test/harness/agent.ts b/packages/agent-core-v2/test/harness/agent.ts
+index 0603b2e..e228d7b 100644
+--- a/packages/agent-core-v2/test/harness/agent.ts
++++ b/packages/agent-core-v2/test/harness/agent.ts
+@@ -2351,12 +2351,15 @@ function createWorkspaceContextStub(
+ 
+ function createPermissionModeService(initialMode: PermissionMode): IAgentPermissionModeService {
+   let mode = initialMode;
++  let revision = 0;
+   const service: IAgentPermissionModeService = {
+     _serviceBrand: undefined,
+     get mode() {
+       return mode;
+     },
++    get revision() { return revision; },
+     setMode: (nextMode) => {
++      if (mode !== nextMode) revision += 1;
+       mode = nextMode;
+     },
+     setModeAndBroadcast: (nextMode) => {
+diff --git a/packages/agent-core-v2/test/session/agentLifecycle/agentLifecycle.test.ts b/packages/agent-core-v2/test/session/agentLifecycle/agentLifecycle.test.ts
+index 79d9e62..55b4d52 100644
+--- a/packages/agent-core-v2/test/session/agentLifecycle/agentLifecycle.test.ts
++++ b/packages/agent-core-v2/test/session/agentLifecycle/agentLifecycle.test.ts
+@@ -21,6 +21,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
+ import '#/agent/permissionMode/permissionModeService';
+ import {
+   permissionModeConfiguredKey,
++  permissionModeVersionKey,
+   permissionModeKey,
+ } from '#/agent/permissionMode/permissionModeOps';
+ import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+@@ -286,6 +287,7 @@ describe('AgentLifecycleService', () => {
+     ix.set(ISessionEventBus, new SyncDescriptor(EventBusService));
+     ix.get(IAgentStateService).contributeState(permissionModeKey);
+     ix.get(IAgentStateService).contributeState(permissionModeConfiguredKey);
++    ix.get(IAgentStateService).contributeState(permissionModeVersionKey);
+     ix.stub(IAppendLogStore, recordingAppendLog().store);
+     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
+     ix.stub(IBlobStore, new BlobStoreService(new InMemoryStorageService()));
+@@ -335,7 +337,8 @@ describe('AgentLifecycleService', () => {
+     } as unknown as IBootstrapService);
+     ix.stub(IFlagService, {
+       _serviceBrand: undefined,
+-      enabled: () => false,
++      enabled: () => true,
++      explain: () => undefined,
+     } as unknown as IFlagService);
+     ix.stub(ISessionNotify, { _serviceBrand: undefined, ready: Promise.resolve(), enabled: false });
+     ix.stub(ISessionWorkspaceContext, {
+@@ -1190,6 +1193,21 @@ describe('AgentLifecycleService', () => {
+     expect(svc.handleOf('worker-1')!.accessor.get(IAgentStateService).get(permissionModeKey)).toBe('manual');
+   });
+ 
++  it('broadcasts review to pinned Tower workers and keeps them governed when review is left', async () => {
++    const svc = ix.get(IAgentLifecycleService);
++    await svc.create({ agentId: 'main' });
++    await svc.create({ agentId: 'worker-1' });
++    const worker = svc.handleOf('worker-1')!;
++    void worker.accessor.get(IEventDispatcher).dispatch(new ProfileBind({
++      agentId: 'worker-1', profileName: TOWER_WORKER_PROFILE,
++      thinkingEffort: 'off', systemPrompt: '', disallowedTools: [],
++    }));
++    svc.broadcastPermissionMode('review');
++    expect(worker.accessor.get(IAgentPermissionModeService).mode).toBe('review');
++    svc.broadcastPermissionMode('manual');
++    expect(worker.accessor.get(IAgentPermissionModeService).mode).toBe('manual');
++  });
++
+   it('wires MCP OAuth credentials through the session atomic document store', async () => {
+     const svc = ix.get(IAgentLifecycleService);
+     await svc.create({ agentId: 'main' });
+diff --git a/packages/agent-core-v2/test/state/builtinReplayableKeys.ts b/packages/agent-core-v2/test/state/builtinReplayableKeys.ts
+index 79b3e46..413e4ae 100644
+--- a/packages/agent-core-v2/test/state/builtinReplayableKeys.ts
++++ b/packages/agent-core-v2/test/state/builtinReplayableKeys.ts
+@@ -8,6 +8,7 @@ import { turnKey } from '#/agent/loop/turnOps';
+ import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';
+ import {
+   permissionModeConfiguredKey,
++  permissionModeVersionKey,
+   permissionModeKey,
+ } from '#/agent/permissionMode/permissionModeOps';
+ import { permissionRulesKey } from '#/agent/permissionRules/permissionRulesOps';
+@@ -33,6 +34,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
+   mcpDiscoveryKey,
+   permissionModeKey,
+   permissionModeConfiguredKey,
++  permissionModeVersionKey,
+   permissionRulesKey,
+   pluginSessionStartSnapshotKey,
+   changeNotifierSnapshotKey,
+diff --git a/packages/kap-server/src/protocol/display.ts b/packages/kap-server/src/protocol/display.ts
+index 2d5ef7e..f10c362 100644
+--- a/packages/kap-server/src/protocol/display.ts
++++ b/packages/kap-server/src/protocol/display.ts
+@@ -79,7 +79,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
+     kind: z.literal('goal_start'),
+     objective: z.string(),
+     completionCriterion: z.string().optional(),
+-    mode: z.enum(['manual', 'yolo']),
++    mode: z.enum(['manual', 'review', 'yolo']),
+   }),
+   z.object({
+     kind: z.literal('generic'),
+diff --git a/packages/kap-server/src/protocol/events-zod.ts b/packages/kap-server/src/protocol/events-zod.ts
+index b519f25..c0f55b8 100644
+--- a/packages/kap-server/src/protocol/events-zod.ts
++++ b/packages/kap-server/src/protocol/events-zod.ts
+@@ -108,7 +108,7 @@ export const usageStatusSchema = z.object({
+   total: tokenUsageSchema.optional(),
+ }) satisfies z.ZodType<UsageStatus>;
+ 
+-export const permissionModeSchema = z.enum(['manual', 'yolo', 'auto']) satisfies z.ZodType<PermissionMode>;
++export const permissionModeSchema = z.enum(['manual', 'review', 'yolo', 'auto']) satisfies z.ZodType<PermissionMode>;
+ 
+ export const skillSourceSchema = z.enum(['project', 'user', 'extra', 'builtin']) satisfies z.ZodType<SkillSource>;
+ 
+diff --git a/packages/kap-server/src/services/transcript/coreEventMap.ts b/packages/kap-server/src/services/transcript/coreEventMap.ts
+index 85cc8e3..bebbb27 100644
+--- a/packages/kap-server/src/services/transcript/coreEventMap.ts
++++ b/packages/kap-server/src/services/transcript/coreEventMap.ts
+@@ -1319,7 +1319,7 @@ export class AgentTranscriptProjector {
+     contextTokens?: number;
+     maxContextTokens?: number;
+     contextUsage?: number;
+-    permission?: 'manual' | 'yolo' | 'auto';
++    permission?: 'manual' | 'review' | 'yolo' | 'auto';
+   }): TranscriptOperation[] {
+     const ops: TranscriptOperation[] = [];
+     const modes: {
+@@ -1348,7 +1348,7 @@ export class AgentTranscriptProjector {
+       contextTokens?: number;
+       maxContextTokens?: number;
+       contextUsage?: number;
+-      permission?: 'manual' | 'yolo' | 'auto';
++      permission?: 'manual' | 'review' | 'yolo' | 'auto';
+     } = {};
+     let hasStatusSlice = false;
+     if (event.model !== undefined) {
+diff --git a/packages/klient/src/contract/agent/schemas.ts b/packages/klient/src/contract/agent/schemas.ts
+index 6a4c793..d605099 100644
+--- a/packages/klient/src/contract/agent/schemas.ts
++++ b/packages/klient/src/contract/agent/schemas.ts
+@@ -113,7 +113,7 @@ export const runtimeBindingSchema = z.object({
+   runtimeId: z.string(),
+ });
+ 
+-export const permissionModeSchema = z.enum(['manual', 'yolo', 'auto']);
++export const permissionModeSchema = z.enum(['manual', 'review', 'yolo', 'auto']);
+ 
+ export const setPermissionPayloadSchema = z.object({
+   mode: permissionModeSchema,
+diff --git a/packages/node-sdk/src/index.ts b/packages/node-sdk/src/index.ts
+index 722f1ab..8f228a5 100644
+--- a/packages/node-sdk/src/index.ts
++++ b/packages/node-sdk/src/index.ts
+@@ -1,3 +1,4 @@
++export { importKimiSession, listLegacyKimiSessions, type LegacyKimiSession } from '#/autokimi-sessions';
+ export { KimiHarness } from '#/kimi-harness';
+ export type { KimiHarnessRuntimeOptions } from '#/kimi-harness';
+ export { Session } from '#/session';
+diff --git a/packages/node-sdk/src/permission.ts b/packages/node-sdk/src/permission.ts
+index 3cb9df0..307c3e0 100644
+--- a/packages/node-sdk/src/permission.ts
++++ b/packages/node-sdk/src/permission.ts
+@@ -1,4 +1,4 @@
+ export type { PermissionApprovalResultRecord } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRules';
+ export type { PermissionData } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
+ 
+-export type PermissionMode = 'yolo' | 'manual' | 'auto';
++export type PermissionMode = 'yolo' | 'manual' | 'review' | 'auto';
+diff --git a/packages/node-sdk/src/session.ts b/packages/node-sdk/src/session.ts
+index 6788678..79c01d9 100644
+--- a/packages/node-sdk/src/session.ts
++++ b/packages/node-sdk/src/session.ts
+@@ -301,7 +301,7 @@ export class Session {
+     if (!isPermissionMode(mode)) {
+       throw new KimiError(
+         ErrorCodes.SESSION_PERMISSION_MODE_INVALID,
+-        'Session permission mode must be yolo, manual, or auto',
++        'Session permission mode must be manual, review, yolo, or auto',
+       );
+     }
+     await this.rpc.setPermission({ sessionId: this.id, mode });
+@@ -874,7 +874,7 @@ function normalizeOptionalString(value: string | undefined): string | undefined
+ }
+ 
+ function isPermissionMode(value: unknown): value is PermissionMode {
+-  return value === 'yolo' || value === 'manual' || value === 'auto';
++  return value === 'yolo' || value === 'manual' || value === 'review' || value === 'auto';
+ }
+ 
+ function resumeStateFromSummary(
+diff --git a/packages/node-sdk/src/v2/config-mapper.ts b/packages/node-sdk/src/v2/config-mapper.ts
+index 89b23ba..4e1eedd 100644
+--- a/packages/node-sdk/src/v2/config-mapper.ts
++++ b/packages/node-sdk/src/v2/config-mapper.ts
+@@ -29,6 +29,7 @@ const KIMI_CONFIG_DOMAINS = [
+   'planMode',
+   'yolo',
+   'defaultPermissionMode',
++  'autokimiPermissionMode',
+   'defaultPlanMode',
+   'autoSessionTitle',
+   'permission',
+@@ -63,6 +64,9 @@ export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): K
+       config[domain] = value;
+     }
+   }
++  if (config['autokimiPermissionMode'] !== undefined) {
++    config['defaultPermissionMode'] = config['autokimiPermissionMode'];
++  }
+   return config as KimiConfig;
+ }
+ 
+diff --git a/packages/node-sdk/test/list-sessions.test.ts b/packages/node-sdk/test/list-sessions.test.ts
+index 07a3abe..124f303 100644
+--- a/packages/node-sdk/test/list-sessions.test.ts
++++ b/packages/node-sdk/test/list-sessions.test.ts
+@@ -283,7 +283,7 @@ describe('SDKRpcClientV2 search-index separation', () => {
+ 
+       expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+       // With the read model off, the session query-store is never opened either.
+-      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(false);
++      expect(existsSync(join(homeDir, 'autokimi', 'cache', 'query-store'))).toBe(false);
+     } finally {
+       await client.close();
+       vi.unstubAllEnvs();
+@@ -316,7 +316,7 @@ describe('SDKRpcClientV2 search-index separation', () => {
+       // and prove the read model really did engage (the flag took effect).
+       const status = await client.engineAccessor.get(ISessionIndex).prepare();
+       expect(status.state).toBe('ready');
+-      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(true);
++      expect(existsSync(join(homeDir, 'autokimi', 'cache', 'query-store'))).toBe(true);
+       expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+     } finally {
+       await client.close();
+diff --git a/packages/node-sdk/test/session-runtime-helpers.ts b/packages/node-sdk/test/session-runtime-helpers.ts
+index 94035f0..e5d365e 100644
+--- a/packages/node-sdk/test/session-runtime-helpers.ts
++++ b/packages/node-sdk/test/session-runtime-helpers.ts
+@@ -102,7 +102,7 @@ async function readIndexedSessionDir(
+ ): Promise<string | undefined> {
+   let raw: string;
+   try {
+-    raw = await readFile(join(homeDir, 'session_index.jsonl'), 'utf-8');
++    raw = await readFile(join(homeDir, 'autokimi', 'session_index.jsonl'), 'utf-8');
+   } catch (error) {
+     const code = (error as NodeJS.ErrnoException).code;
+     if (code === 'ENOENT') return undefined;
+diff --git a/packages/transcript/src/contract/schema.ts b/packages/transcript/src/contract/schema.ts
+index d973ad8..37e552d 100644
+--- a/packages/transcript/src/contract/schema.ts
++++ b/packages/transcript/src/contract/schema.ts
+@@ -323,7 +323,7 @@ export const agentStatusMetaSchema = z.object({
+   contextTokens: z.number().optional(),
+   maxContextTokens: z.number().optional(),
+   contextUsage: z.number().optional(),
+-  permission: z.enum(['manual', 'yolo', 'auto']).optional(),
++  permission: z.enum(['manual', 'review', 'yolo', 'auto']).optional(),
+   phase: agentPhaseMetaSchema.optional(),
+ });
+ 
+diff --git a/packages/transcript/src/model/meta.ts b/packages/transcript/src/model/meta.ts
+index 42c870f..82056fa 100644
+--- a/packages/transcript/src/model/meta.ts
++++ b/packages/transcript/src/model/meta.ts
+@@ -92,7 +92,7 @@ export interface AgentStatusMeta {
+   readonly contextTokens?: number;
+   readonly maxContextTokens?: number;
+   readonly contextUsage?: number;
+-  readonly permission?: 'manual' | 'yolo' | 'auto';
++  readonly permission?: 'manual' | 'review' | 'yolo' | 'auto';
+   readonly phase?: AgentPhaseMeta;
+ }
+ 

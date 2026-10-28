@@ -9,6 +9,7 @@
     "patches/native-review.patch",
     "patches/security-dependencies.patch",
     "patches/headless.patch",
-    "patches/security-boundaries.patch"
+    "patches/security-boundaries.patch",
+    "patches/permission-mode.patch"
   ]
 }

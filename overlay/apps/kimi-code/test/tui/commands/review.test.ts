@@ -45,7 +45,7 @@ function makeSession() {
 }
 
 function makeHost(source: ExperimentalFeatureState['source'] = 'default') {
-  let enabled = false;
+  let enabled = true;
   const feature = (): ExperimentalFeatureState => ({
     id: 'approval_review',
     title: 'Model approval reviewer',
@@ -226,42 +226,33 @@ describe('native TUI approval reviewer', () => {
     setExperimentalFeatures([]);
   });
 
-  it('enables only the current session and switches permissions to manual', async () => {
+  it('selects native review without writing a session metadata switch', async () => {
     const t = makeHost();
     await handleReviewCommand(t.commandHost, 'on');
-    expect(t.host.session.setPermission).toHaveBeenCalledWith('manual');
+    expect(t.host.session.setPermission).toHaveBeenCalledWith('review');
+    expect(t.host.session.updateMetadata).not.toHaveBeenCalled();
     expect(t.host.harness.setConfig).not.toHaveBeenCalled();
-    expect(t.host.session.updateMetadata).toHaveBeenCalledWith({
-      autokimi: { approvalReview: true },
-    });
-    expect(isExperimentalFlagEnabled('approval_review')).toBe(false);
-    expect(t.host.state.appState.approvalReviewEnabled).toBe(true);
+    expect(t.host.state.appState.permissionMode).toBe('review');
     expect(t.host.showNotice).toHaveBeenCalledWith(
-      'Auto-review: ON',
-      expect.stringContaining('without a permission prompt'),
+      'Permission mode: Auto Review',
     );
   });
 
-  it('disables only the current session without granting broader permissions', async () => {
-    const t = makeHost();
-    t.setEnabled(true);
-    await handleReviewCommand(t.commandHost, 'off');
-    expect(t.host.session.updateMetadata).toHaveBeenCalledWith({
-      autokimi: { approvalReview: false },
-    });
-    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
-    expect(t.host.session.setPermission).not.toHaveBeenCalled();
-    expect(isExperimentalFlagEnabled('approval_review')).toBe(true);
-    expect(t.host.state.appState.approvalReviewEnabled).toBe(false);
-  });
-
-  it('does not claim to disable an environment-enforced reviewer', async () => {
+  it('returns to manual even when capability is enabled by the environment', async () => {
     const t = makeHost('env');
     await handleReviewCommand(t.commandHost, 'off');
-    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(t.host.session.setPermission).toHaveBeenCalledWith('manual');
     expect(t.host.session.updateMetadata).not.toHaveBeenCalled();
+    expect(t.host.state.appState.permissionMode).toBe('manual');
+  });
+
+  it('rejects review when its capability is disabled', async () => {
+    const t = makeHost('env');
+    t.setEnabled(false);
+    await handleReviewCommand(t.commandHost, 'on');
+    expect(t.host.session.setPermission).not.toHaveBeenCalled();
     expect(t.host.showError).toHaveBeenCalledWith(
-      expect.stringContaining('environment override'),
+      expect.stringContaining('unavailable'),
     );
   });
 
@@ -272,7 +263,7 @@ describe('native TUI approval reviewer', () => {
     await handleReviewCommand(t.commandHost, 'status');
     expect(t.host.showNotice).toHaveBeenCalledWith(
       expect.any(String),
-      expect.stringContaining('Paused'),
+      expect.stringContaining('Disabled'),
     );
     t.host.harness.getConfig.mockClear();
     await handleReviewCommand(t.commandHost, 'model provider/reviewer');
@@ -285,7 +276,7 @@ describe('native TUI approval reviewer', () => {
   it('describes uncertain and failed reviews as denials in active mode', async () => {
     const t = makeHost();
     await handleReviewCommand(t.commandHost, 'on');
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     await handleReviewCommand(t.commandHost, 'status');
     expect(t.host.showNotice).toHaveBeenCalledWith(
       expect.any(String),
@@ -323,12 +314,9 @@ describe('native TUI approval reviewer', () => {
     finish();
     await pending;
     expect(t.host.setAppState).not.toHaveBeenCalledWith({
-      permissionMode: 'manual',
+      permissionMode: 'review',
     });
-    expect(t.host.showNotice).toHaveBeenCalledWith(
-      'Auto-review: ON',
-      expect.stringContaining('paused'),
-    );
+    expect(t.host.showNotice).not.toHaveBeenCalled();
   });
 
   it('does not update a replacement session after enabling completes', async () => {
@@ -348,12 +336,9 @@ describe('native TUI approval reviewer', () => {
     finish();
     await pending;
     expect(t.host.setAppState).not.toHaveBeenCalledWith({
-      permissionMode: 'manual',
+      permissionMode: 'review',
     });
-    expect(t.host.showNotice).toHaveBeenCalledWith(
-      'Auto-review: OFF',
-      expect.stringContaining('selected permission mode'),
-    );
+    expect(t.host.showNotice).not.toHaveBeenCalled();
   });
 
   it('forwards a repeated auto choice made while enabling', async () => {
@@ -371,7 +356,7 @@ describe('native TUI approval reviewer', () => {
     );
     try {
       await applyPermissionChoice(t.commandHost, 'auto');
-      expect(t.host.session.setPermission).toHaveBeenNthCalledWith(1, 'manual');
+      expect(t.host.session.setPermission).toHaveBeenNthCalledWith(1, 'review');
       expect(t.host.session.setPermission).toHaveBeenNthCalledWith(2, 'auto');
     } finally {
       finish();
@@ -380,7 +365,7 @@ describe('native TUI approval reviewer', () => {
     expect(t.host.harness.setConfig).not.toHaveBeenCalled();
     expect(t.host.state.appState.permissionMode).toBe('auto');
     expect(t.host.setAppState).not.toHaveBeenCalledWith({
-      permissionMode: 'manual',
+      permissionMode: 'review',
     });
   });
 
@@ -400,8 +385,10 @@ describe('native TUI approval reviewer', () => {
     const other = t.makeSession().session;
     await handleReviewCommand(t.commandHost, 'off');
     const [feature] = await t.host.harness.getExperimentalFeatures();
-    expect(effectiveApprovalReview(t.host.session, feature)).toBe(false);
-    expect(effectiveApprovalReview(other, feature)).toBe(true);
+    expect(effectiveApprovalReview(t.host.session, feature, 'manual')).toBe(
+      false,
+    );
+    expect(effectiveApprovalReview(other, feature, 'review')).toBe(true);
   });
 
   it('lists eligible denials for the current session', async () => {
@@ -437,7 +424,7 @@ describe('native TUI approval reviewer', () => {
   it('reports when no denial is available for an ID-free approval', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     await handleReviewCommand(t.commandHost, 'approve');
     expect(t.host.showNotice).toHaveBeenCalledWith(
       'Auto-review denials: 0',
@@ -450,7 +437,7 @@ describe('native TUI approval reviewer', () => {
   it('changes a unique denial to approved and consumes it without an ID', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     const { pending, picker } = await openApprovalPicker(
       t,
@@ -479,7 +466,7 @@ describe('native TUI approval reviewer', () => {
   it('requires an explicit selection for multiple denials and defaults to the latest', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     registerDenial(
       'session-test',
@@ -511,7 +498,7 @@ describe('native TUI approval reviewer', () => {
   it('cancels a denial selection without consuming any record', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     registerDenial('session-test', 'call-newer');
     const { pending, picker } = await openApprovalPicker(t);
@@ -526,7 +513,7 @@ describe('native TUI approval reviewer', () => {
   it('does not approve a selection from a replaced session', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     registerDenial('session-test', 'call-newer');
     const { pending, picker } = await openApprovalPicker(t);
@@ -550,7 +537,7 @@ describe('native TUI approval reviewer', () => {
   it('does not consume a denial whose challenge changed during selection', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     registerDenial('session-test', 'call-newer');
     const { pending, picker } = await openApprovalPicker(t);
@@ -581,7 +568,7 @@ describe('native TUI approval reviewer', () => {
   it('sends one strict grant without changing configuration or permissions', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     await approveId(t, 'call-denied');
     expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(1);
@@ -601,11 +588,12 @@ describe('native TUI approval reviewer', () => {
     expect(t.host.session.updateMetadata).not.toHaveBeenCalled();
   });
 
-  it('rejects unknown, disabled and non-manual approvals without consuming the denial', async () => {
+  it('rejects unknown, disabled and non-review approvals without consuming the denial', async () => {
     const t = makeHost();
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     await handleReviewCommand(t.commandHost, 'approve unknown');
+    t.setEnabled(false);
     await handleReviewCommand(t.commandHost, 'approve call-denied');
     t.setEnabled(true);
     t.host.state.appState.permissionMode = 'auto';
@@ -617,7 +605,7 @@ describe('native TUI approval reviewer', () => {
   it('rejects missing and replacement sessions without sending a grant', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     t.commandHost.session = undefined;
     await handleReviewCommand(t.commandHost, 'approve call-denied');
@@ -654,7 +642,7 @@ describe('native TUI approval reviewer', () => {
   it('replaces an expired same-action denial before approving by ID', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     registerDenial(
       'session-test',
@@ -706,7 +694,7 @@ describe('native TUI approval reviewer', () => {
   it('retains the denial until submission is acknowledged and prevents duplicate submissions', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     let acknowledge!: () => void;
     t.host.sendReviewApproval.mockImplementationOnce(
@@ -737,7 +725,7 @@ describe('native TUI approval reviewer', () => {
   it('keeps a failed grant retryable without reporting success', async () => {
     const t = makeHost();
     t.setEnabled(true);
-    t.host.state.appState.permissionMode = 'manual';
+    t.host.state.appState.permissionMode = 'review';
     registerDenial();
     t.host.sendReviewApproval.mockRejectedValueOnce(
       new Error('submission rejected'),

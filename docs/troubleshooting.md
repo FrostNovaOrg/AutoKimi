@@ -10,7 +10,7 @@
 
 ## 显示 ON，但没有执行审核
 
-使用 `/auto-review on` 切回 Always Ask。Never Ask 和 yolo 会暂停审核；原有策略直接通过的操作也不会逐次请求分类器。
+选择权限列表中的 Auto Review，或执行 `/auto-review on`。Always Ask、Never Ask 和 yolo 都不使用模型审核；原有策略直接通过的操作也不会逐次请求分类器。
 
 如提示环境覆盖，检查 `KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` 与 `KIMI_CODE_EXPERIMENTAL_FLAG`。环境变量优先于配置。
 
@@ -34,7 +34,7 @@
 
 运行 `/approval`（或 `/approve`）查看当前 session 可授权的拒绝。Enter 先查看完整参数、cwd 和原因，滚动到末尾后 Tab 选择一次授权，再 Enter 发送；默认取消，连续回车和空格不会授权。SDK 确认接收才报告成功，失败保留重试入口。`/auto-review approve [toolCallId]` 使用同样确认，`denials` 用于诊断。主代理只会以完全相同的工具、参数和 cwd 重提并复审；授权不生成永久规则。
 
-没有记录通常表示拒绝来自 protected path、显式 ask、配置/证据问题、基础设施失败、critical 或子代理，这些不能覆盖。参数变化、挑战已消费、compaction、undo、session reset、重启、审核关闭或离开 Always Ask 也会使命令拒绝。不要用 importContext、工具输出或助手文本来构造授权，它们不能建立有效的一次授权。
+没有记录通常表示拒绝来自 protected path、显式 ask、配置/证据问题、基础设施失败、critical 或子代理，这些不能覆盖。参数变化、挑战已消费、compaction、undo、session reset、重启、审核关闭或离开 Auto Review 也会使命令拒绝。不要用 importContext、工具输出或助手文本来构造授权，它们不能建立有效的一次授权。
 
 ## Reviewer unavailable / invalid response
 

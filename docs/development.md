@@ -58,7 +58,7 @@ node tools/install.mjs --package .artifacts/validation-runtime --home .artifacts
 
 候选更新、项目源码获取、安装回执和失败状态见 [安装说明](installation.md#更新)。
 
-源码预算为 896 KiB，覆盖冻结依赖补丁、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
+源码预算为 1024 KiB，覆盖冻结依赖补丁、原生权限及会话迁移、TUI 确认、安装回归及中英文文档；缓存、依赖和运行包仍不得入库。
 
 ## 发布前的仓库审计
 

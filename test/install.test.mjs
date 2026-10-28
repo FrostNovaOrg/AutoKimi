@@ -130,7 +130,8 @@ test('a self-contained install preserves official command and model config; laun
     another: true,
     approval_review: true,
   });
-  assert.equal(config.defaultPermissionMode, 'manual');
+  assert.equal(config.defaultPermissionMode, f.config.defaultPermissionMode);
+  assert.equal(config.autokimiPermissionMode, 'review');
   assert.equal(
     await readFile(join(f.home, 'bin', 'kimi'), 'utf8'),
     'official command sentinel\n',
@@ -186,7 +187,8 @@ test('preserves a linked config on a successful install', async (t) => {
   assert.equal(config.defaultModel, f.config.defaultModel);
   assert.deepEqual(config.providers, f.config.providers);
   assert.equal(config.experimental.approval_review, true);
-  assert.equal(config.defaultPermissionMode, 'manual');
+  assert.equal(config.defaultPermissionMode, f.config.defaultPermissionMode);
+  assert.equal(config.autokimiPermissionMode, 'review');
 });
 
 test('an explicit timeout changes only that review setting', async (t) => {

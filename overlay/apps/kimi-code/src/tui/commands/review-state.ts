@@ -1,7 +1,4 @@
-import type {
-  ExperimentalFeatureState,
-  JsonObject,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import {
   APPROVAL_REVIEW_DENIAL_KIND,
   APPROVAL_REVIEW_DENIAL_LIMIT,
@@ -9,41 +6,12 @@ import {
   APPROVAL_REVIEW_GRANT_MARKER,
 } from '../constant/approval-review';
 
-interface ReviewSession {
-  getResumeState():
-    { sessionMetadata: { custom?: Record<string, unknown> } } | undefined;
-  summary?: { metadata?: Record<string, unknown> };
-}
-
-export function approvalReviewMetadata(enabled: boolean): JsonObject {
-  return { autokimi: { approvalReview: enabled } };
-}
-
-export function sessionApprovalReviewOverride(
-  session: ReviewSession | undefined,
-): boolean | undefined {
-  const custom =
-    session?.getResumeState()?.sessionMetadata.custom ??
-    session?.summary?.metadata;
-  const container = custom?.['autokimi'];
-  if (
-    typeof container !== 'object' ||
-    container === null ||
-    Array.isArray(container)
-  )
-    return undefined;
-  const enabled = (container as Record<string, unknown>)['approvalReview'];
-  return typeof enabled === 'boolean' ? enabled : undefined;
-}
-
 export function effectiveApprovalReview(
-  session: ReviewSession | undefined,
+  _session: unknown,
   feature: ExperimentalFeatureState | undefined,
+  mode?: import('@moonshot-ai/kimi-code-sdk').PermissionMode,
 ): boolean {
-  if (feature === undefined) return false;
-  if (feature.source === 'env' || feature.source === 'master-env')
-    return feature.enabled;
-  return sessionApprovalReviewOverride(session) ?? feature.enabled;
+  return mode === 'review' && feature?.enabled === true;
 }
 
 export interface ApprovalReviewDenial {

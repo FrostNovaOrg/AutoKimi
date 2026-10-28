@@ -25,7 +25,7 @@ TUI 中原有 allow/deny 规则先执行，审核器接收待审批操作。无�
 
 | 项目                 | 当前状态                                     |
 | -------------------- | -------------------------------------------- |
-| AutoKimi / Kimi Code | 0.3.1 / 2.3.3                                |
+| AutoKimi / Kimi Code | 0.4.0 / 2.3.3                                |
 | 构建依赖             | Node.js ≥24.15.0；pnpm 10.33.0               |
 | 已实测               | macOS ARM64：构建、TUI 回归及两种安装路径    |
 | 待验证               | Linux 终端交互及其他平台组合；Windows 不支持 |
@@ -55,9 +55,9 @@ npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
 ```
 
-手动构建需要 Node.js ≥24.15.0 和 pnpm **10.33.0**。安装启用审核并将默认权限模式设为 Always Ask；一键脚本保留已有审核时限，传入 `--timeout-ms 90000` 才设置为 90 秒。登录和模型配置继续共用，官方 `kimi` 可执行文件保留。
+手动构建需要 Node.js ≥24.15.0 和 pnpm **10.33.0**。安装通过专用配置键将 AutoKimi 默认权限设为 Auto Review；一键脚本保留已有审核时限，传入 `--timeout-ms 90000` 才设置为 90 秒。登录和模型配置继续共用，官方 `kimi` 可执行文件保留。
 
-首次使用运行 `/login`，或通过 `/provider` 添加服务并用 `/model` 选择模型；已有 Kimi 配置可直接复用。共享配置中的默认权限模式改动也影响原生 Kimi 下次启动。
+首次使用运行 `/login`，或通过 `/provider` 添加服务并用 `/model` 选择模型；已有 Kimi 配置可直接复用。AutoKimi 的权限默认值和新会话数据与原生 Kimi 分开，登录及模型设置继续共用。
 
 进入 TUI 后：
 
@@ -85,7 +85,9 @@ autokimi runs stop <run-id>
 
 任务强制自动审核，预算由调用者持有。`--resume <run-id>` 保留累计计数并续跑原生上下文；`--session <session-id>` 在已有上下文中开启新任务。权限拒绝会明确标记为未完整完成，接入前请阅读[无头协议](docs/headless.md)。原生根命令 `-p/--prompt`、无终端启动 TUI 和 ACP/Web 服务继续禁止。
 
-**官方 `/auto` 是 Never Ask 模式，会暂停分类器。** 使用 AutoKimi 时保持 Always Ask；`/auto-review on` 会切回该模式。审核开启状态会显示在底栏。
+权限选择器现在提供 **Always Ask → Auto Review → Ask When Needed → Never Ask** 四项。选择 Auto Review 使用模型审核，`/auto-review on` 是兼容入口；`/auto-review off` 切换到 Always Ask。官方 `/auto` 仍表示 Never Ask，底栏显示当前权限模式。
+
+0.4.0 将会话存于 `<KimiHome>/autokimi/sessions/`。继续旧 AutoKimi 或原生 Kimi 会话时，先关闭源会话，执行 `autokimi session legacy-list`、`autokimi session import <id>`，然后 `autokimi -r <id>`。导入复制历史并保留原始数据，详见[会话兼容设计](docs/architecture.md#权限模式与会话兼容)。
 
 ## 源码组织
 

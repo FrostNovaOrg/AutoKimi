@@ -2,7 +2,7 @@
 
 [English](en/headless.md) | [简体中文](headless.md)
 
-AutoKimi 0.3.1 提供显式 `exec` 入口，适合主代理、任务编排器和脚本调用。默认 `autokimi` 仍进入 TUI；原生 `-p`、ACP 和 Web 服务入口继续禁止。调用前配置好 Kimi 登录、主模型和审核模型，无头进程不会交互登录或索取人工审批。
+AutoKimi 0.4.0 提供显式 `exec` 入口，适合主代理、任务编排器和脚本调用。默认 `autokimi` 仍进入 TUI；原生 `-p`、ACP 和 Web 服务入口继续禁止。调用前配置好 Kimi 登录、主模型和审核模型，无头进程不会交互登录或索取人工审批。
 
 ## 提交、观察与停止
 
@@ -75,7 +75,7 @@ worker 丢失时标为 `interrupted/worker_lost`。恢复使用原生 SDK 历史
 
 ## 权限与隔离边界
 
-无头入口强制 Always Ask 和自动审核；审核被环境关闭时，模型调用前失败。试图切换到 auto/yolo 会停止运行。原生 deny 始终生效；通常被原生 allow 直接放行的副作用工具也进入审核。只读工具集保留直接执行路径，但仍受预算、文件范围和原生拒绝规则约束。
+无头入口强制 `review` 权限模式；审核被环境关闭时，模型调用前失败。试图切换到 auto/yolo 会停止运行。原生 deny 始终生效；通常被原生 allow 直接放行的副作用工具也进入审核。只读工具集保留直接执行路径，但仍受预算、文件范围和原生拒绝规则约束。
 
 `--cwd` 是文件工具的授权工作区，检查真实路径和符号链接，并保护 Kimi home。`--read-only` 只允许有限读取、查询和任务内状态工具，禁用 Bash、写入和 MCP 等副作用能力。默认关闭 WebSearch、FetchURL 与 MCP；`--allow-network` 允许这些工具参与正常审核。它不控制 provider 连接；Bash 网络还受系统沙箱约束，必须同时取得该标志和 `shell_allowed_domains` 域名许可。
 
@@ -90,3 +90,7 @@ worker 丢失时标为 `interrupted/worker_lost`。恢复使用原生 SDK 历史
 每个 run 单 worker，每个原生 session 单写者，提交及所有权通过本地原子文件锁协调。此协议面向单机受信调用者，不是多租户远程服务。事件日志上限 32 MiB，最终文本最多 64 KiB 并通过 `text_truncated` 标识；到达日志限制会失败。当前没有自动删除策略；确认任务停止后再按保留政策清理整项 run，保留需要的游标与结果。替换或卸载运行包前先停止其活跃任务。
 
 测试与已验证平台见[验证记录](verification.md)，配置和费用见[配置说明](configuration.md)。
+
+旧版 run 日志继续保留；升级到 0.4.0 后，若其 session 仍在旧目录，先根据 `runs status --json` 中的 `session_id` 执行 `autokimi session import <id>`，再续跑。导入不重置 run 的累计预算。
+
+0.4.0 的 `session.ready.data.permission` 与 `runs schema.permissions.mode` 均为 `review`；读取旧值 `manual` 的严格调用方应更新该枚举。JSONL 协议版本、事件游标及预算格式继续为原值。

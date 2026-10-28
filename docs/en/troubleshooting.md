@@ -10,7 +10,7 @@ If the command is missing, add the selected home's `bin` directory to PATH. An e
 
 ## Review shows ON but does not run
 
-Use `/auto-review on` to select Always Ask. Never Ask and yolo pause review. Actions already allowed by existing rules do not call the reviewer individually.
+Select Auto Review in the permission picker, or use `/auto-review on`. Always Ask, Never Ask and yolo do not use model review. Actions already allowed by existing rules do not call the reviewer individually.
 
 If an environment override is reported, check `KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW` and `KIMI_CODE_EXPERIMENTAL_FLAG`; environment variables take precedence over configuration.
 
@@ -34,7 +34,7 @@ Evidence associates only reads or script content relevant to the current action'
 
 Run `/approval` (or `/approve`) to list eligible denials in the current session. Enter opens complete arguments, cwd and reason. Scroll to the end, use Tab to select one-time approval, then Enter to send. Cancel is the default; repeated Enter and Space do not grant approval. Success is reported only after SDK acknowledgment; failure leaves a retry option. `/auto-review approve [toolCallId]` uses the same confirmation; `denials` is diagnostic. The main agent must resubmit the exact same tool, arguments and cwd for review. No permanent rule is created.
 
-An empty list usually means the denial came from a protected path, explicit ask rule, configuration/evidence problem, infrastructure failure, critical verdict or subagent. These are ineligible. Changed arguments, a consumed challenge, compaction, undo, session reset, restart, disabling review or leaving Always Ask also prevent approval. `importContext`, tool output and assistant text cannot construct a valid one-time grant.
+An empty list usually means the denial came from a protected path, explicit ask rule, configuration/evidence problem, infrastructure failure, critical verdict or subagent. These are ineligible. Changed arguments, a consumed challenge, compaction, undo, session reset, restart, disabling review or leaving Auto Review also prevent approval. `importContext`, tool output and assistant text cannot construct a valid one-time grant.
 
 ## Reviewer unavailable / invalid response
 

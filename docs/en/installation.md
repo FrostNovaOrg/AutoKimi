@@ -20,12 +20,12 @@ From a local checkout, these installation options are available:
 
 ```sh
 sh install.sh --source
-sh install.sh --version v0.3.1 --revision TRUSTED_COMMIT
-sh install.sh --package /path/to/autokimi-v0.3.1-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
+sh install.sh --version v0.4.0 --revision TRUSTED_COMMIT
+sh install.sh --package /path/to/autokimi-v0.4.0-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
 sh install.sh --timeout-ms 90000
 ```
 
-`--version` selects an AutoKimi Release tag. An explicitly selected version without a matching platform package fails; add `--source` to build that tag instead. `--package` requires a matching `SHA256SUMS` file in the same directory. `--source` forces a source build. Installation enables review and selects Always Ask. Omitting `--timeout-ms` preserves an existing timeout. First use still requires login or model configuration in an interactive session.
+`--version` selects an AutoKimi Release tag. An explicitly selected version without a matching platform package fails; add `--source` to build that tag instead. `--package` requires a matching `SHA256SUMS` file in the same directory. `--source` forces a source build. Installation selects Auto Review as the AutoKimi default. Omitting `--timeout-ms` preserves an existing timeout. First use still requires login or model configuration in an interactive session.
 
 ## Build and install
 
@@ -48,7 +48,7 @@ The installer uses `KIMI_CODE_HOME`, or `~/.kimi-code` when unset, creating:
 
 It checks the official `kimi` file's hash before and after installation and refuses to overwrite an unmanaged command named `autokimi`. An `install.lock` serializes installs into the same home. Configuration, launcher and receipt use backups and atomic writes, with rollback on later failures. If a crashed installer leaves a lock, confirm no installer is running before removing it. The launcher preserves the working directory and command arguments, pins the selected home, and disables official automatic updates for this separate runtime. It needs a working Node executable; reinstall if that Node is moved or removed.
 
-The packaged SDK merges configuration to enable `experimental.approval_review` and set `default_permission_mode = "manual"`. Only an explicit `--timeout-ms` changes the review timeout. Other review settings, providers, models and login data retain their values. When `config.toml` is a symlink to a valid file, the new configuration is generated in a temporary home, then atomically written to the real target; both success and rollback preserve the symlink. **Configuration is shared with official Kimi, so its next launch also sees the changed default permission mode.**
+The packaged SDK merges configuration to enable `experimental.approval_review` and set `autokimi_permission_mode = "review"`. Only an explicit `--timeout-ms` changes the review timeout. Other review settings, providers, models and login data retain their values. When `config.toml` is a symlink to a valid file, the new configuration is generated in a temporary home, then atomically written to the real target; both success and rollback preserve the symlink. Login, providers and model settings remain shared. The native `default_permission_mode` retains its value; the new mode uses an AutoKimi-specific key.
 
 90 seconds is the combined limit for both stages. An earlier result continues immediately; each review does not wait a fixed 90 seconds. Without the option, existing values are preserved; the source default is 30 seconds.
 
@@ -118,7 +118,7 @@ Older launchers cannot acquire this update mechanism themselves. Rebuild and rei
 
 Confirm `~/.kimi-code/bin/autokimi` contains the `# autokimi local launcher` marker before removing that script and `~/.kimi-code/autokimi/`. Substitute your custom `--home` if applicable. Preserve official `kimi`, login data and sessions.
 
-Before removal, `/auto-review off` can disable the review setting in shared configuration; set your preferred default permission mode separately. Do not delete the whole `~/.kimi-code` directory.
+Removal leaves the native permission default intact. Remove `autokimi_permission_mode` manually if desired, and retain `autokimi/sessions` to preserve AutoKimi history. Do not delete the whole `~/.kimi-code` directory.
 
 ## Installation trust chain (0.3.1)
 

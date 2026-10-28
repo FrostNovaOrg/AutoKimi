@@ -68,6 +68,7 @@ interface DenialChallenge {
   sessionId: string;
   agentId: string;
   revision: number;
+  permissionRevision: number;
   toolName: string;
   args: unknown;
   cwd: string;
@@ -144,24 +145,9 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   ) {}
 
   isEnabled(): boolean {
-    if (this.mode.mode !== 'manual') return false;
-    const feature = this.flags.explain(APPROVAL_REVIEW_FLAG);
-    const enabled =
-      feature?.enabled ?? this.flags.enabled(APPROVAL_REVIEW_FLAG);
-    if (feature?.source === 'env' || feature?.source === 'master-env')
-      return enabled;
-    const snapshot = this.metadata.snapshot?.();
-    if (snapshot === undefined) return false;
-    const container = snapshot.custom?.['autokimi'];
-    if (
-      typeof container === 'object' &&
-      container !== null &&
-      !Array.isArray(container)
-    ) {
-      const override = (container as Record<string, unknown>)['approvalReview'];
-      if (typeof override === 'boolean') return override;
-    }
-    return enabled;
+    return (
+      this.mode.mode === 'review' && this.flags.enabled(APPROVAL_REVIEW_FLAG)
+    );
   }
 
   async review(
@@ -206,8 +192,12 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       );
     if (decision === undefined && parsedSettings.success) {
       const settings = parsedSettings.data;
+      const permissionAbort = new AbortController();
+      const modeChanged = this.mode.onDidChangeMode?.(() => {
+        permissionAbort.abort();
+      });
       const deadline = createDeadlineAbortSignal(
-        context.signal,
+        AbortSignal.any([context.signal, permissionAbort.signal]),
         settings.timeoutMs,
       );
       let phase: 'evidence' | 'model' = 'evidence';
@@ -284,6 +274,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
             humanApproval === undefined ? undefined : [humanApproval],
           questionAnswers: initialAuthorization.questionAnswers,
         });
+        const permissionRevision = this.mode.revision;
         stillCurrent = (): boolean => {
           const currentSettings = ApprovalReviewConfigSchema.safeParse(
             this.config.get<PermissionConfig | undefined>('permission')
@@ -302,6 +293,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
               }) &&
             rules === evidenceFingerprint(permissionRules()) &&
             this.isEnabled() &&
+            this.mode.revision === permissionRevision &&
             JSON.stringify(settings) === JSON.stringify(currentSettings.data) &&
             model === resolveModel(currentSettings.data.model)
           );
@@ -352,20 +344,25 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       } catch {
         context.signal.throwIfAborted();
         decision = rejectedReview(
-          deadline.signal.aborted
-            ? 'Review timed out; this action was denied without a safety verdict.'
-            : phase === 'evidence'
-              ? 'Verified human authorization or complete review evidence is unavailable; this action was denied.'
-              : 'Reviewer unavailable or returned an invalid or incomplete response; this action was denied.',
-          deadline.signal.aborted
-            ? 'timeout'
-            : phase === 'evidence'
-              ? 'evidence'
-              : 'reviewer',
+          permissionAbort.signal.aborted
+            ? 'Permission mode changed during review; this action was denied.'
+            : deadline.signal.aborted
+              ? 'Review timed out; this action was denied without a safety verdict.'
+              : phase === 'evidence'
+                ? 'Verified human authorization or complete review evidence is unavailable; this action was denied.'
+                : 'Reviewer unavailable or returned an invalid or incomplete response; this action was denied.',
+          permissionAbort.signal.aborted
+            ? 'authorization'
+            : deadline.signal.aborted
+              ? 'timeout'
+              : phase === 'evidence'
+                ? 'evidence'
+                : 'reviewer',
         );
         if (isInfrastructureFailure(decision.source))
           this.recordInfrastructureFailure();
       } finally {
+        modeChanged?.dispose();
         deadline.clear();
       }
     }
@@ -469,7 +466,10 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       );
     }
     for (const record of this.denialChallenges.values())
-      if (record.revision !== this.contextMemory.prefixRevision())
+      if (
+        record.revision !== this.contextMemory.prefixRevision() ||
+        record.permissionRevision !== this.mode.revision
+      )
         this.denialChallenges.delete(record.toolCallId);
     this.progress(
       context,
@@ -557,7 +557,10 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
   ): { toolCallId: string; fingerprint: string } | undefined {
     if (this.scope.agentId !== 'main') return undefined;
     for (const record of this.denialChallenges.values())
-      if (record.revision !== revision)
+      if (
+        record.revision !== revision ||
+        record.permissionRevision !== this.mode.revision
+      )
         this.denialChallenges.delete(record.toolCallId);
     for (const grant of grants) {
       const record = this.denialChallenges.get(grant.toolCallId);
@@ -567,6 +570,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
         record.fingerprint !== grant.fingerprint ||
         grant.fingerprint !== fingerprint ||
         record.revision !== revision ||
+        record.permissionRevision !== this.mode.revision ||
         record.sessionId !== this.session.sessionId ||
         record.agentId !== this.scope.agentId
       )
@@ -596,6 +600,7 @@ export class AgentApprovalReviewService implements IAgentApprovalReviewService {
       sessionId: this.session.sessionId,
       agentId: this.scope.agentId,
       revision: this.contextMemory.prefixRevision(),
+      permissionRevision: this.mode.revision,
       toolName: context.toolCall.name,
       args: context.args,
       cwd: this.session.cwd,

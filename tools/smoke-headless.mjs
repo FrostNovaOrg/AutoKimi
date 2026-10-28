@@ -341,7 +341,9 @@ try {
     command = receipt.launcher;
     prefix = [];
   }
-  assert.equal((await call(['runs', 'schema'])).events[0].version, 1);
+  const schema = (await call(['runs', 'schema'])).events[0];
+  assert.equal(schema.version, 1);
+  assert.equal(schema.permissions.mode, 'review');
   const before = requests;
   const first = await detach('CASE_FINAL', 'dedupe');
   const duplicate = await detach('CASE_FINAL', 'dedupe');
@@ -372,6 +374,11 @@ try {
     '--timeout',
     '15s',
   ]);
+  assert.equal(
+    written.events.find((event) => event.type === 'session.ready').data
+      .permission,
+    'review',
+  );
   assert.equal(written.code, 0, JSON.stringify(written));
   assert.ok(reviews > 0);
   assert.equal(await readFile(join(cwd, 'result.txt'), 'utf8'), 'fixture done');
@@ -551,6 +558,32 @@ try {
     (await status(disabled.events[0].run_id)).reason,
     'review_disabled',
   );
+
+  const enabledConfig = await readFile(join(home, 'config.toml'), 'utf8');
+  const disabledConfig = enabledConfig.replace(
+    /approval_review\s*=\s*true/,
+    'approval_review = false',
+  );
+  assert.notEqual(disabledConfig, enabledConfig);
+  try {
+    await writeFile(join(home, 'config.toml'), disabledConfig);
+    const beforeDisabled = requests;
+    const unavailable = await call([
+      'exec',
+      '--prompt',
+      'CASE_FINAL',
+      '--cwd',
+      cwd,
+    ]);
+    assert.equal(unavailable.code, 7, JSON.stringify(unavailable));
+    assert.equal(
+      (await status(unavailable.events[0].run_id)).reason,
+      'review_disabled',
+    );
+    assert.equal(requests, beforeDisabled);
+  } finally {
+    await writeFile(join(home, 'config.toml'), enabledConfig);
+  }
 
   const interrupted = await detach('CASE_HOLD', 'crash-recovery');
   await wait(interrupted.run_id, (state) => state.usage.requests > 0);

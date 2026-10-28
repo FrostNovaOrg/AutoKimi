@@ -25,7 +25,7 @@ In the TUI, existing allow/deny rules run first and the reviewer receives pendin
 
 | Item                 | Current status                                                                     |
 | -------------------- | ---------------------------------------------------------------------------------- |
-| AutoKimi / Kimi Code | 0.3.1 / 2.3.3                                                                      |
+| AutoKimi / Kimi Code | 0.4.0 / 2.3.3                                                                      |
 | Build requirements   | Node.js ≥24.15.0; pnpm 10.33.0                                                     |
 | Tested               | macOS ARM64: build, TUI regression tests and both installation paths               |
 | Pending validation   | Linux terminal interaction and other platform combinations; Windows is unsupported |
@@ -55,9 +55,9 @@ npm run install:local -- --timeout-ms 90000
 ~/.kimi-code/bin/autokimi
 ```
 
-Manual builds require Node.js ≥24.15.0 and pnpm **10.33.0**. Installation enables review and sets the default permission mode to Always Ask. The one-command installer preserves an existing review timeout unless you pass `--timeout-ms 90000` to set it to 90 seconds. Login and model configuration remain shared; the official `kimi` executable is preserved.
+Manual builds require Node.js ≥24.15.0 and pnpm **10.33.0**. Installation selects Auto Review as the AutoKimi default, using its own configuration key. The one-command installer preserves an existing review timeout unless you pass `--timeout-ms 90000` to set it to 90 seconds. Login and model configuration remain shared; the official `kimi` executable is preserved.
 
-On first use, run `/login`, or add a service with `/provider` and select a model with `/model`. Existing Kimi settings can be reused. Changing the shared default permission mode also affects the next launch of native Kimi.
+On first use, run `/login`, or add a service with `/provider` and select a model with `/model`. Existing Kimi settings can be reused. AutoKimi keeps its permission default and new session data separate from native Kimi; login and model settings remain shared.
 
 Inside the TUI:
 
@@ -85,7 +85,9 @@ autokimi runs stop <run-id>
 
 Tasks use automatic review and caller-owned budgets. `--resume <run-id>` continues native context with cumulative counters; `--session <session-id>` starts a new task in existing context. Permission denials are reported as incomplete outcomes. See the [headless protocol](docs/en/headless.md) before integration. Native root `-p/--prompt`, non-terminal TUI startup and ACP/Web services remain disabled.
 
-**The official `/auto` command selects Never Ask and pauses the reviewer.** Keep Always Ask enabled when using AutoKimi; `/auto-review on` switches back to it. Review status appears in the bottom bar.
+The permission picker now offers **Always Ask → Auto Review → Ask When Needed → Never Ask**. Select Auto Review for model checks, or use `/auto-review on`; `/auto-review off` selects Always Ask. Official `/auto` still selects Never Ask. The bottom bar shows the active permission mode.
+
+Version 0.4.0 stores sessions under `<KimiHome>/autokimi/sessions/`. To continue an earlier AutoKimi or native Kimi session, close it and run `autokimi session legacy-list`, then `autokimi session import <id>` and `autokimi -r <id>`. Import copies the history and keeps the source unchanged. See [session compatibility](docs/en/architecture.md#permission-modes-and-session-compatibility).
 
 ## Source layout
 

@@ -25,7 +25,8 @@ try {
   await writeFile(join(home, 'bin', 'kimi'), official);
   await writeFile(
     join(home, 'config.toml'),
-    `default_model = "fixture/model"
+    `default_permission_mode = "yolo"
+default_model = "fixture/model"
 [providers.fixture]
 type = "openai"
 api_key = "fixture-placeholder"
@@ -126,7 +127,9 @@ policy = "preserve this fixture policy"
     );
     assert.equal(config.permission.review.twoStage, true);
     assert.equal(config.experimental.approval_review, true);
-    assert.equal(config.defaultPermissionMode, 'manual');
+    assert.equal(config.defaultPermissionMode, 'review');
+    assert.equal(config.autokimiPermissionMode, 'review');
+    assert.match(await readFile(join(home, 'config.toml'), 'utf8'), /^default_permission_mode\s*=\s*"yolo"/m);
   } finally {
     await harness.close();
   }

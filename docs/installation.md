@@ -18,12 +18,12 @@ curl -fsSL https://raw.githubusercontent.com/FrostNovaOrg/AutoKimi/30e5c1d5ca21f
 
 ```sh
 sh install.sh --source
-sh install.sh --version v0.3.1 --revision TRUSTED_COMMIT
-sh install.sh --package /path/to/autokimi-v0.3.1-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
+sh install.sh --version v0.4.0 --revision TRUSTED_COMMIT
+sh install.sh --package /path/to/autokimi-v0.4.0-darwin-arm64.tar.gz --sha256 TRUSTED_SHA256 --home /path/to/kimi-home
 sh install.sh --timeout-ms 90000
 ```
 
-`--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建 `--revision` 指定的提交并核对版本。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会启用审核并切回 Always Ask；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
+`--version` 选择 AutoKimi Release 标签，指定版本没有对应平台包时会报错；加 `--source` 则构建 `--revision` 指定的提交并核对版本。`--package` 要求同目录有匹配该文件的 `SHA256SUMS`。`--source` 强制源码构建。脚本安装会选择 Auto Review 作为 AutoKimi 默认权限；省略 `--timeout-ms` 会保留已有时限。首次使用仍须在交互会话登录或配置模型。
 
 ## 构建并安装
 
@@ -48,7 +48,7 @@ npm run install:local -- --timeout-ms 90000
 
 安装器核对官方 `kimi` 文件的前后摘要，拒绝覆盖不由它管理的同名 `autokimi`。同一配置目录的安装通过 `install.lock` 串行执行；配置、启动器和回执使用备份与原子写入，后置失败会回滚。若安装进程崩溃遗留锁文件，确认没有安装器仍在运行后再删除该文件。脚本保留工作目录和命令参数，固定安装时的配置目录，关闭该独立运行时的官方自动更新。安装需要可用的 Node；移动或删除 Node 后需重新安装脚本。
 
-安装会通过随包携带的 SDK 合并配置：启用 `experimental.approval_review`、设置 `default_permission_mode = "manual"`。传入 `--timeout-ms` 才会修改审核时限；其他审核设置、providers、models 和登录信息保持原值。若 `config.toml` 是指向有效配置文件的符号链接，新配置会在临时 HOME 生成后原子写回真实目标，成功和回滚都保留链接。**配置与官方版共用，因此默认权限模式变动也会影响官方版下次启动。**
+安装会通过随包携带的 SDK 合并配置：启用 `experimental.approval_review`、设置 `autokimi_permission_mode = "review"`。传入 `--timeout-ms` 才会修改审核时限；其他审核设置、providers、models 和登录信息保持原值。若 `config.toml` 是指向有效配置文件的符号链接，新配置会在临时 HOME 生成后原子写回真实目标，成功和回滚都保留链接。登录、provider 和模型配置继续共用；原生 `default_permission_mode` 保留原值，新权限值只写入 AutoKimi 专用键。
 
 90 秒是两阶段合计的上限，正常返回后立即继续，不会每次等待 90 秒。省略参数会保留已有时限；没有配置时源码默认是 30 秒。
 
@@ -118,7 +118,7 @@ npm run follow:upstream -- --version 2.3.3
 
 确认 `~/.kimi-code/bin/autokimi` 含 `# autokimi local launcher` 标记后，可删除该脚本及 `~/.kimi-code/autokimi/`。使用自定义 `--home` 时替换为该目录。保留官方 `kimi`、登录和会话。
 
-共享配置中的审核开关可在卸载前用 `/auto-review off` 关闭；默认权限模式按个人需要调整。不要删除整个 `~/.kimi-code`。
+卸载不修改原生 Kimi 的默认权限；需要时可手动移除 `autokimi_permission_mode`。保留 `autokimi/sessions` 以便恢复 AutoKimi 历史。不要删除整个 `~/.kimi-code`。
 
 ## 安装信任链（0.3.1）
 

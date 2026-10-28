@@ -422,7 +422,7 @@ try {
         reviewerProvider: reviewer.providerName,
         fixture: values.fixture ?? null,
         twoStage: true,
-        mode: 'manual',
+        mode: 'review',
         budgets: {
           maxAttempts,
           attackerCalls: 32,
@@ -548,7 +548,7 @@ try {
             : config.get(key),
       },
       { homeDir },
-      { mode: 'manual' },
+      { mode: 'review' },
       { rules: [] },
       { get: () => memory },
       makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
