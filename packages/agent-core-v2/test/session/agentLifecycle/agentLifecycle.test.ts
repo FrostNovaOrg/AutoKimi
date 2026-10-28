@@ -335,7 +335,8 @@ describe('AgentLifecycleService', () => {
     } as unknown as IBootstrapService);
     ix.stub(IFlagService, {
       _serviceBrand: undefined,
-      enabled: () => false,
+      enabled: () => true,
+      explain: () => undefined,
     } as unknown as IFlagService);
     ix.stub(ISessionNotify, { _serviceBrand: undefined, ready: Promise.resolve(), enabled: false });
     ix.stub(ISessionWorkspaceContext, {
@@ -1188,6 +1189,21 @@ describe('AgentLifecycleService', () => {
 
     expect(svc.handleOf('main')!.accessor.get(IAgentStateService).get(permissionModeKey)).toBe('yolo');
     expect(svc.handleOf('worker-1')!.accessor.get(IAgentStateService).get(permissionModeKey)).toBe('manual');
+  });
+
+  it('broadcasts review to pinned Tower workers and keeps them governed when review is left', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'main' });
+    await svc.create({ agentId: 'worker-1' });
+    const worker = svc.handleOf('worker-1')!;
+    void worker.accessor.get(IEventDispatcher).dispatch(new ProfileBind({
+      agentId: 'worker-1', profileName: TOWER_WORKER_PROFILE,
+      thinkingEffort: 'off', systemPrompt: '', disallowedTools: [],
+    }));
+    svc.broadcastPermissionMode('review');
+    expect(worker.accessor.get(IAgentPermissionModeService).mode).toBe('review');
+    svc.broadcastPermissionMode('manual');
+    expect(worker.accessor.get(IAgentPermissionModeService).mode).toBe('manual');
   });
 
   it('wires MCP OAuth credentials through the session atomic document store', async () => {

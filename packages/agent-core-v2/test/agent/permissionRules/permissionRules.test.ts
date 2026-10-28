@@ -12,6 +12,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IConfigService } from '#/app/config/config';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -43,10 +44,13 @@ let ix: TestInstantiationService;
 let log: IAppendLogStore;
 let dispatcher: IEventDispatcher;
 let svc: IAgentPermissionRulesService;
+let configuredRules: PermissionRule[];
 
 beforeEach(() => {
   disposables = new DisposableStore();
   ix = disposables.add(new TestInstantiationService());
+  configuredRules = [];
+  ix.stub(IConfigService, { get: () => ({ rules: configuredRules }) } as unknown as IConfigService);
   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IAgentPermissionRulesService, new SyncDescriptor(AgentPermissionRulesService));
@@ -68,6 +72,13 @@ async function readRecords(): Promise<WireRecord[]> {
 }
 
 describe('AgentPermissionRulesService (wire-backed)', () => {
+  it('includes configured rules and reflects their removal without persisting stale copies', () => {
+    configuredRules = [denyRule];
+    svc.addRules([allowRule]);
+    expect(svc.rules).toEqual([allowRule, denyRule]);
+    configuredRules = [];
+    expect(svc.rules).toEqual([allowRule]);
+  });
   it('addRules appends rules and exposes the accumulated rules', () => {
     expect(svc.rules).toEqual([]);
 

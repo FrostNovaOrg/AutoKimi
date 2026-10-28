@@ -14,7 +14,7 @@ import {
   type ScopeSeed,
   TelemetryService,
 } from '@moonshot-ai/agent-core-v2';
-import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+import { KIMI_REGION_PROFILES, readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { initializeServerTelemetry, shutdownServerTelemetry } from '../src/services/telemetry';
@@ -45,6 +45,7 @@ describe('server telemetry', () => {
     const resolvedEnv = env ?? {
       ...process.env,
       KIMI_DISABLE_TELEMETRY: undefined,
+      KIMI_CODE_OAUTH_HOST: KIMI_REGION_PROFILES['mainland-cn'].oauthHost,
     };
     if (toml !== undefined) {
       await writeFile(join(home as string, 'config.toml'), toml, 'utf-8');

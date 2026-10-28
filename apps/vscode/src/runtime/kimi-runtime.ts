@@ -182,7 +182,7 @@ export class KimiRuntime {
         }
         const status = await session.getStatus();
         const permission = corePermissionForLegacyApproval(approval);
-        if (status.permission !== permission) await session.setPermission(permission);
+        if (status.permission !== "review" && status.permission !== permission) await session.setPermission(permission);
         runtime = this.wrapSession(session, approval);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
@@ -305,7 +305,7 @@ async function applySessionSettings(
   // Changes made in the pickers reach the active session through the
   // SaveConfig handler instead.
   const permission = corePermissionForLegacyApproval(legacyApproval);
-  if (status.permission !== permission) {
+  if (status.permission !== "review" && status.permission !== permission) {
     await session.setPermission(permission);
   }
 }

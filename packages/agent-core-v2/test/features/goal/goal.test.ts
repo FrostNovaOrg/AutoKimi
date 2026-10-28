@@ -1,3 +1,4 @@
+import { IShellSandbox } from '#/app/shellSandbox/sandbox';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
@@ -2596,6 +2597,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
     const sh = controllableSpawn();
     const ctx = createTestAgent(
       execEnvServices({ processRunner: { spawn: sh.spawn } }),
+      appService(IShellSandbox, { wrap: async () => undefined } as unknown as IShellSandbox),
       permissionModeServices('yolo'),
     );
     try {
@@ -2704,6 +2706,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
     const sh = controllableSpawn();
     const ctx = createTestAgent(
       execEnvServices({ processRunner: { spawn: sh.spawn } }),
+      appService(IShellSandbox, { wrap: async () => undefined } as unknown as IShellSandbox),
       permissionModeServices('yolo'),
     );
     try {
@@ -2765,6 +2768,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
     const sh = controllableSpawn();
     const ctx = createTestAgent(
       execEnvServices({ processRunner: { spawn: sh.spawn } }),
+      appService(IShellSandbox, { wrap: async () => undefined } as unknown as IShellSandbox),
       permissionModeServices('yolo'),
     );
     try {

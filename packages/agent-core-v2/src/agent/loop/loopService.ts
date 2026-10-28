@@ -1,3 +1,4 @@
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
@@ -178,8 +179,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IPluginService private readonly plugins: IPluginService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
     @ILogService private readonly logger: ILogService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
+    if (this.headless?.active) {
+      this._register(this.hooks.onWillBeginStep.register('reviewed-headless-budget', async (_ctx, next) => {
+        this.headless?.beforeStep();
+        await next();
+      }));
+    }
     this.states.contributeState(turnKey);
     this.states.contributeState(loopLastRequestTraceIdKey);
     this.states.contributeState(loopDisposingKey);

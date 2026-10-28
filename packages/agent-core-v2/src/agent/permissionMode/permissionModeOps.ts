@@ -7,10 +7,12 @@ import { defineState } from '#/state/state';
 
 const permissionSetModeSchema = z.object({
   agentId: z.string(),
-  mode: z.custom<PermissionMode>(),
+  mode: z.enum(['manual', 'review', 'yolo', 'auto']),
 });
 
-export class PermissionSetMode extends AgentEvent2<z.infer<typeof permissionSetModeSchema>> {
+export class PermissionSetMode extends AgentEvent2<
+  z.infer<typeof permissionSetModeSchema>
+> {
   static override readonly type = 'permission.set_mode';
   static override readonly durable = true;
   static override readonly schema = permissionSetModeSchema;
@@ -20,8 +22,11 @@ export interface PermissionSetMode {
   readonly mode: PermissionMode;
 }
 
-export const permissionModeKey = defineState('permissionMode', (): PermissionMode => 'manual')
-  .replayable({ schema: z.custom<PermissionMode>() })
+export const permissionModeKey = defineState(
+  'permissionMode',
+  (): PermissionMode => 'manual',
+)
+  .replayable({ schema: z.enum(['manual', 'review', 'yolo', 'auto']) })
   .on(PermissionSetMode, (_s, e) => e.mode);
 
 export const permissionModeConfiguredKey = defineState(

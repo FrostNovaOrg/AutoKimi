@@ -1,3 +1,4 @@
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 import {
   apiKeyEnvMissingMessage,
@@ -89,6 +90,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     @IProtocolAdapterRegistry
     private readonly protocolRegistry: IProtocolAdapterRegistry,
     @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
     this._register(
@@ -140,7 +142,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     const model = this.buildModel(id);
     const entry: CatalogEntry = {
       model,
-      requester: new ModelRequesterImpl(model, this.protocolRegistry),
+      requester: new ModelRequesterImpl(model, this.protocolRegistry, this.headless),
     };
     this.cache.set(id, entry);
     return entry;

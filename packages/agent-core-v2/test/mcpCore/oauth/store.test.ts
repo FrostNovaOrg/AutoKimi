@@ -116,6 +116,7 @@ describe('MCP OAuth credential identity', () => {
     await provider.ready;
     await provider.saveClientInformation({
       client_id: 'cached-client',
+      issuer: 'https://auth.example.test',
       redirect_uris: ['http://127.0.0.1:45678/callback'],
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
@@ -136,6 +137,7 @@ describe('MCP OAuth credential identity', () => {
 function token(accessToken: string): OAuthTokens {
   return {
     access_token: accessToken,
+    issuer: 'https://auth.example.test',
     token_type: 'Bearer',
   };
 }
@@ -151,6 +153,7 @@ describe('McpOAuthClientProvider.invalidateStaleRegistration', () => {
 
   const registration: OAuthClientInformationFull = {
     client_id: 'c1',
+    issuer: 'https://auth.example.test',
     redirect_uris: ['http://127.0.0.1:11111/callback'],
   };
 

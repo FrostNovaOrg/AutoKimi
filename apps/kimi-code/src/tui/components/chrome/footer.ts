@@ -448,6 +448,10 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
+    if (state.permissionMode === 'review') {
+      modes.push(chalk.hex(state.approvalReviewEnabled === false ? colors.warning : colors.primary)
+        .bold(state.approvalReviewEnabled === false ? 'Auto Review unavailable' : PERMISSION_MODE_DISPLAY_NAMES.review));
+    }
     if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
     if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
     if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));

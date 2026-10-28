@@ -5,15 +5,15 @@ import type { ContextInjectionContext } from '#/features/reminder/types';
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
+import REVIEW_MODE_REMINDER from './permission-mode-review-reminder.md?raw';
 import AUTO_MODE_ENTER_REMINDER from './permission-mode-auto-enter-reminder.md?raw';
 import AUTO_MODE_EXIT_REMINDER from './permission-mode-auto-exit-reminder.md?raw';
 
 const PERMISSION_MODE_INJECTION_VARIANT = 'permission_mode';
 
-export const permissionModeLastModeKey = defineState<PermissionMode | undefined>(
-  'permissionMode.lastMode',
-  () => undefined as PermissionMode | undefined,
-);
+export const permissionModeLastModeKey = defineState<
+  PermissionMode | undefined
+>('permissionMode.lastMode', () => undefined as PermissionMode | undefined);
 
 export class PermissionModeInjection extends Service {
   constructor(
@@ -24,7 +24,9 @@ export class PermissionModeInjection extends Service {
     super();
     this.states.contributeState(permissionModeLastModeKey);
     this._register(
-      injector.register(PERMISSION_MODE_INJECTION_VARIANT, (ctx) => this.reminder(ctx)),
+      injector.register(PERMISSION_MODE_INJECTION_VARIANT, (ctx) =>
+        this.reminder(ctx),
+      ),
     );
   }
 
@@ -36,14 +38,19 @@ export class PermissionModeInjection extends Service {
     this.states.set(permissionModeLastModeKey, value);
   }
 
-  private reminder({ injectedPositions }: ContextInjectionContext): string | undefined {
+  private reminder({
+    injectedPositions,
+  }: ContextInjectionContext): string | undefined {
     const currentMode = this.permissionMode.mode;
     const previousMode = this.lastMode;
     if (currentMode === previousMode) {
-      if (injectedPositions.length > 0 || currentMode !== 'auto') return undefined;
+      if (injectedPositions.length > 0) return undefined;
+      if (currentMode === 'review') return REVIEW_MODE_REMINDER;
+      if (currentMode !== 'auto') return undefined;
       return AUTO_MODE_ENTER_REMINDER;
     }
     this.lastMode = currentMode;
+    if (currentMode === 'review') return REVIEW_MODE_REMINDER;
     if (currentMode === 'auto') return AUTO_MODE_ENTER_REMINDER;
     if (previousMode === 'auto') return AUTO_MODE_EXIT_REMINDER;
     return undefined;

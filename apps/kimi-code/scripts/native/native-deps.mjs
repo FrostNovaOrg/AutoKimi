@@ -63,6 +63,15 @@ export function isSupportedTarget(target) {
 /** @type {readonly NativeDepDescriptor[]} */
 export const nativeDeps = Object.freeze([
   {
+    id: 'shell-sandbox',
+    name: () => '@anthropic-ai/sandbox-runtime',
+    collect: 'native-file-only',
+    parent: null,
+    nativeFileRelatives: (target) => target.startsWith('linux-')
+      ? [`vendor/seccomp/${target.slice('linux-'.length)}/apply-seccomp`]
+      : [],
+  },
+  {
     id: 'clipboard-host',
     name: () => '@mariozechner/clipboard',
     collect: 'js-only',

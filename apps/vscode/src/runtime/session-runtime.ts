@@ -2,6 +2,7 @@ import {
   isKimiError,
   type ContentPart as SdkContentPart,
   type Event,
+  type PermissionMode,
   type PromptInput,
   type Session,
   type SessionSummary,
@@ -136,6 +137,10 @@ export class SessionRuntime {
   async setLegacyYoloMode(enabled: boolean): Promise<void> {
     if (this.legacyApproval.yolo === enabled) return;
     await this.applyLegacyApproval({ ...this.legacyApproval, yolo: enabled });
+  }
+
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    await this.applyLegacyApproval({ yolo: mode === "yolo", afk: mode === "auto" }, mode);
   }
 
   subscribe(webviewId: string): void {
@@ -418,9 +423,11 @@ export class SessionRuntime {
     this.webviewIds.clear();
   }
 
-  private async applyLegacyApproval(flags: LegacyApprovalFlags): Promise<void> {
+  private async applyLegacyApproval(
+    flags: LegacyApprovalFlags,
+    permission: PermissionMode = corePermissionForLegacyApproval(flags),
+  ): Promise<void> {
     this.ensureOpen();
-    const permission = corePermissionForLegacyApproval(flags);
     const status = await this.session.getStatus();
     const permissionChanged = status.permission !== permission;
     if (permissionChanged) await this.session.setPermission(permission);

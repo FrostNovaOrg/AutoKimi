@@ -5,6 +5,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IConfigService } from '#/app/config/config';
+import { PERMISSION_SECTION, type PermissionConfig } from './configSection';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
@@ -23,12 +25,16 @@ export class AgentPermissionRulesService implements IAgentPermissionRulesService
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly agentState: IAgentStateService,
+    @IConfigService private readonly config: IConfigService,
   ) {
     this.agentState.contributeState(permissionRulesKey);
   }
 
   get rules(): readonly PermissionRule[] {
-    return [...this.agentState.get(permissionRulesKey).rules];
+    return [
+      ...this.agentState.get(permissionRulesKey).rules,
+      ...(this.config.get<PermissionConfig | undefined>(PERMISSION_SECTION)?.rules ?? []),
+    ];
   }
 
   get sessionApprovalRulePatterns(): readonly string[] {

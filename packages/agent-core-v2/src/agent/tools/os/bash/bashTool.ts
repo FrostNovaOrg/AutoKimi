@@ -1,3 +1,6 @@
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IShellSandbox } from '#/app/shellSandbox/sandbox';
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import { IAgentTaskService } from '#/agent/task/task';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
@@ -105,9 +108,13 @@ export class BashTool implements IBashTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
+    @IAgentPermissionModeService private readonly permissionMode?: IAgentPermissionModeService,
+    @IShellSandbox private readonly sandbox?: IShellSandbox,
   ) {}
 
   private allowBackground(): boolean {
+    if (this.headless?.active) return false;
     return (
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
@@ -116,6 +123,7 @@ export class BashTool implements IBashTool {
   }
 
   private autoBackgroundOnTimeout(): boolean {
+    if (this.headless?.active) return false;
     return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
   }
 
@@ -154,11 +162,12 @@ export class BashTool implements IBashTool {
     };
   }
 
-  private spawn(
+  private async spawn(
     processService: IHostProcessService,
     env: HostEnvironmentInfo,
     effectiveCwd: string,
     command: string,
+    signal: AbortSignal,
   ): Promise<IHostProcess> {
     const shellCwd = getShellPathBridge(env).toShellPath(effectiveCwd);
     const shellCommand = `cd ${shellQuote(shellCwd)} && ${command}`;
@@ -169,7 +178,16 @@ export class BashTool implements IBashTool {
       SHELL: env.shellPath,
     };
 
-    return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
+    const reviewed = this.permissionMode?.mode === 'review' || this.headless?.active === true;
+    const wrapped = reviewed ? await this.sandbox?.wrap(shellCommand, effectiveCwd, env.shellPath, signal, this.headless?.active ? this.headless.allowNetwork : true, true) : undefined;
+    if (reviewed && wrapped === undefined) throw new Error('Auto Review requires an available shell sandbox; shell was not started.');
+    if (wrapped === undefined) return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
+    try {
+      signal.throwIfAborted();
+      const process = await processService.spawn(wrapped.argv[0]!, wrapped.argv.slice(1), { cwd: effectiveCwd, env: { ...wrapped.env, ...noninteractiveEnv } });
+      void process.wait().then(wrapped.cleanup, wrapped.cleanup);
+      return process;
+    } catch (error) { wrapped.cleanup(); throw error; }
   }
 
   private async execution(
@@ -199,8 +217,9 @@ export class BashTool implements IBashTool {
     const builder = new ToolOutputAccumulator();
     let proc: IHostProcess;
     try {
-      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command));
+      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command, signal));
     } catch (error) {
+      if (this.sandbox !== undefined) this.headless?.reportDenial(toolCallId, 'Bash', 'Shell sandbox refused execution: ' + String(error).slice(0, 180));
       lease.dispose();
       return {
         isError: true,

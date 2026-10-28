@@ -79,7 +79,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     kind: z.literal('goal_start'),
     objective: z.string(),
     completionCriterion: z.string().optional(),
-    mode: z.enum(['manual', 'yolo']),
+    mode: z.enum(['manual', 'review', 'yolo']),
   }),
   z.object({
     kind: z.literal('generic'),

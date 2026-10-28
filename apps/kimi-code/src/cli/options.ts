@@ -1,3 +1,5 @@
+import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+
 export type UIMode = 'shell' | 'print';
 export type PromptOutputFormat = 'text' | 'stream-json';
 
@@ -39,6 +41,7 @@ export interface CLIOptions {
   continue: boolean;
   yolo: boolean;
   auto: boolean;
+  permissionMode?: PermissionMode;
   plan: boolean;
   model: string | undefined;
   outputFormat: PromptOutputFormat | undefined;
@@ -65,6 +68,12 @@ export function validateOptions(
   opts: CLIOptions,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): ValidatedOptions {
+  if (opts.permissionMode !== undefined && !['manual', 'review', 'yolo', 'auto'].includes(opts.permissionMode)) {
+    throw new OptionConflictError('Permission mode must be manual, review, yolo, or auto.');
+  }
+  if (opts.permissionMode !== undefined && (opts.auto || opts.yolo)) {
+    throw new OptionConflictError('Cannot combine --permission-mode with --auto or --yolo.');
+  }
   const prompt = opts.prompt;
   const promptMode = prompt !== undefined;
   if (promptMode && prompt.trim().length === 0) {

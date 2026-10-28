@@ -126,3 +126,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 
 - [配置文件](./config-files.md) — `config.toml` 各字段的完整说明
 - [环境变量](./env-vars.md) — `KIMI_CODE_HOME` 等路径变量的详细用法
+
+## 审核任务数据
+
+带预算任务将私有请求、状态快照、事件日志和取消标记存储在 Kimi 原有数据根目录下的 `runs/<run-id>/`。会话继续使用原有目录和锁。会话中的 `approval-review.jsonl` 审计记录决策元数据及指纹，不包含完整工具参数或模型生成的自由文本理由。见[无头任务](../reference/headless-runs.md)。

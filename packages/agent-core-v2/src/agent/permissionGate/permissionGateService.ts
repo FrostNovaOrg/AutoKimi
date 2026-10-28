@@ -1,3 +1,6 @@
+import { IFlagService } from '#/app/flag/flag';
+import { APPROVAL_REVIEW_FLAG } from '#/agent/approvalReview/config';
+import { IHeadlessRun, HEADLESS_SAFE_TOOLS } from '#/app/headlessRun/control';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -25,6 +28,8 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IFlagService private readonly flags: IFlagService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
     this._register(toolExecutor.onBeforeExecuteTool((event) => this.adjudicate(event)));
@@ -38,6 +43,15 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
   }
 
   private async adjudicate(event: BeforeToolExecuteEvent): Promise<void> {
+    if (this.modeService.mode === 'review' && !this.flags.enabled(APPROVAL_REVIEW_FLAG)) {
+      event.veto({ output: 'Auto Review is unavailable; this action was denied.', isError: true, stopTurn: true });
+      return;
+    }
+    const blocked = this.headless?.toolPolicy(event);
+    if (blocked !== undefined) {
+      event.veto({ output: blocked, isError: true });
+      return;
+    }
     const evaluation = await this.policyService.evaluate(event);
     if (evaluation === undefined) return;
     this.telemetry.track2('permission_policy_decision', {
@@ -50,8 +64,13 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
       ...evaluation.result.reason,
     });
     const { result, policyName } = evaluation;
+    if (result.kind === 'deny') this.headless?.reportDenial(event.toolCall.id, event.toolCall.name, result.message ?? 'Permission rule denied this action.');
     if (result.kind === 'ask') {
       event.waitUntil(() => this.toolApproval.requestToolApproval(event, result, policyName));
+      return;
+    }
+    if (result.kind === 'approve' && this.requiresHeadlessReview(event)) {
+      event.waitUntil(() => this.toolApproval.requestToolApproval(event, { kind: 'ask' }, 'reviewed-headless'));
       return;
     }
     if (result.kind === 'approve') {
@@ -64,9 +83,17 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     }
   }
 
+  private requiresHeadlessReview(context: ResolvedToolExecutionHookContext): boolean {
+    return this.headless?.active === true && !HEADLESS_SAFE_TOOLS.has(context.toolCall.name);
+  }
+
   async authorize(
     context: ResolvedToolExecutionHookContext,
   ): Promise<BeforeExecuteDecision | undefined> {
+    if (this.modeService.mode === 'review' && !this.flags.enabled(APPROVAL_REVIEW_FLAG))
+      return { veto: { output: 'Auto Review is unavailable; this action was denied.', isError: true, stopTurn: true } };
+    const blocked = this.headless?.toolPolicy(context);
+    if (blocked !== undefined) return { veto: { output: blocked, isError: true } };
     const evaluation = await this.policyService.evaluate(context);
     if (evaluation === undefined) return undefined;
     this.telemetry.track2('permission_policy_decision', {
@@ -78,6 +105,9 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
       decision: evaluation.result.kind,
       ...evaluation.result.reason,
     });
+    if (evaluation.result.kind === 'deny') this.headless?.reportDenial(context.toolCall.id, context.toolCall.name, evaluation.result.message ?? 'Permission rule denied this action.');
+    if (evaluation.result.kind === 'approve' && this.requiresHeadlessReview(context))
+      return this.toolApproval.requestToolApproval(context, { kind: 'ask' }, 'reviewed-headless');
     return this.toolApproval.resolvePermissionResolution(
       evaluation.result,
       context,

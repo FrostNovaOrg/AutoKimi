@@ -1,3 +1,6 @@
+import { IFlagService } from '#/app/flag/flag';
+import { stubFlag } from '../../app/flag/stubs';
+import { HeadlessRunControl, IHeadlessRun } from '#/app/headlessRun/control';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -85,6 +88,8 @@ describe('AgentPermissionGate', () => {
     };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.defineInstance(IFlagService, stubFlag(false));
+        reg.define(IHeadlessRun, HeadlessRunControl);
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
         reg.defineInstance(
@@ -129,6 +134,16 @@ describe('AgentPermissionGate', () => {
       ctx,
       'user-configured-deny',
     );
+  });
+
+  it('fails closed on both execution paths if the review capability is unavailable', async () => {
+    mode = 'review';
+    policyResult = { policyName: 'user-configured-allow', result: { kind: 'approve' } };
+    const gate = make();
+    expect(await gate.authorize(makeContext('Write'))).toMatchObject({ veto: { isError: true, stopTurn: true } });
+    expect(await executorEvents.fireBeforeExecute(makeContext('Write'))).toMatchObject({ veto: { isError: true, stopTurn: true } });
+    expect(requestToolApproval).not.toHaveBeenCalled();
+    expect(resolvePermissionResolution).not.toHaveBeenCalled();
   });
 
   it('passes an approve result with executionMetadata straight through', async () => {

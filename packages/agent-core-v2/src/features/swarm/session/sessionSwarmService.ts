@@ -291,7 +291,8 @@ export class SessionSwarmService implements ISessionSwarmService {
         details: { agentId },
       });
     }
-    if (!hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
+    if (caller.accessor.get(IAgentPermissionModeService).mode === 'review' ||
+      !hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
       rebuilt.accessor
         .get(IAgentPermissionModeService)
         .setMode(caller.accessor.get(IAgentPermissionModeService).mode);

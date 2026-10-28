@@ -1,3 +1,4 @@
+import { IHeadlessRun, HeadlessRunControl } from '#/app/headlessRun/control';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize, basename, dirname } from 'pathe';
@@ -120,6 +121,7 @@ function createHarness(
   const reminderRuntime = createReminderHarness(loop, context);
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
+      reg.define(IHeadlessRun, HeadlessRunControl);
       if (options.withRealExecutor === true) {
         reg.defineInstance(IEventBus, {
           _serviceBrand: undefined,

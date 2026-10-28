@@ -606,6 +606,16 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     await expect(pending).resolves.toEqual({ decision: "approved" });
   });
 
+  it("selects Auto Review through the SDK and rolls back on metadata failure", async () => {
+    const { runtime, sdk } = createRuntime();
+    await runtime.setPermissionMode("review");
+    expect(sdk.setPermissions).toEqual(["review"]);
+    expect(runtime.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    sdk.rejectNextMetadataUpdate(new Error("state is read-only"));
+    await expect(runtime.setPermissionMode("auto")).rejects.toThrow("state is read-only");
+    expect(sdk.setPermissions).toEqual(["review", "auto", "review"]);
+  });
+
   it("restores core permission when a legacy flag cannot be persisted", async () => {
     const { runtime, sdk } = createRuntime();
     sdk.rejectNextMetadataUpdate(new Error("state is read-only"));

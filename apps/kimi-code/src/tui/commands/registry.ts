@@ -146,6 +146,14 @@ function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: str
 
 export const BUILTIN_SLASH_COMMANDS = [
   {
+    name: 'approval',
+    aliases: ['approve'],
+    description: 'Manage Auto Review settings and review denied actions',
+    argumentHint: '[status|denials|approve [toolCallId]|model [alias]]',
+    priority: 103,
+    availability: 'idle-only',
+  },
+  {
     name: 'yolo',
     aliases: ['yes'],
     description: 'Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',

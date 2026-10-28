@@ -2215,6 +2215,8 @@ function agentHandle(
   const permissionMode = {
     _serviceBrand: undefined,
     mode: 'auto',
+    revision: 0,
+    getMode: () => 'auto',
     setMode: () => {},
     setModeAndBroadcast: () => {},
     onDidChangeMode: Event.None,

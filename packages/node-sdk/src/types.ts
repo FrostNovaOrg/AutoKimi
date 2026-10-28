@@ -215,7 +215,10 @@ export interface PromptSkillActivation {
   readonly args?: string;
 }
 
+export type { HeadlessOptions, HeadlessLimits, HeadlessUsage, HeadlessState } from '@moonshot-ai/agent-core-v2/app/headlessRun/control';
+
 export interface KimiHarnessOptions {
+  readonly headless?: import('@moonshot-ai/agent-core-v2/app/headlessRun/control').HeadlessOptions;
   readonly identity?: KimiHostIdentity | undefined;
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;

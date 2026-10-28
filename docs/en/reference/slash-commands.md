@@ -21,6 +21,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
 | `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
 | `/permission` | — | Select a permission mode | Yes |
+| `/approval` | `/approve` | Manage Auto Review status and model, inspect denials, and confirm one identical retry; see [Auto Review](../guides/auto-review.md) | No |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
 

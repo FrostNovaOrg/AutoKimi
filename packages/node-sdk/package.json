@@ -54,6 +54,7 @@
   },
   "dependencies": {
     "@antfu/utils": "^9.3.0",
+    "@anthropic-ai/sandbox-runtime": "0.0.81",
     "smol-toml": "^1.6.1",
     "yazl": "^3.3.1",
     "zod": "^4.3.6"

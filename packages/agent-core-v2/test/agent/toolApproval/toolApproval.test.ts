@@ -1,3 +1,4 @@
+import { HeadlessRunControl, IHeadlessRun } from '#/app/headlessRun/control';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -6,6 +7,10 @@ import type { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import {
+  IAgentApprovalReviewService,
+  type ApprovalReviewResult,
+} from '#/agent/approvalReview/approvalReview';
 import type {
   PermissionMode,
   PermissionPolicyResult,
@@ -14,7 +19,10 @@ import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
 } from '#/agent/permissionRules/permissionRules';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  IAgentScopeContext,
+  makeAgentScopeContext,
+} from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import {
   AgentToolApprovalService,
@@ -34,12 +42,18 @@ import {
 } from '#/agent/interaction/approval';
 import { INTERACTION_TAG_SESSION_ID } from '#/human/interaction/interaction';
 import { interactions } from '#/human/interaction/facade';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  ISessionContext,
+  makeSessionContext,
+} from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import {
+  recordingTelemetry,
+  type TelemetryRecord,
+} from '../../app/telemetry/stubs';
 
 const RETRY_GUIDANCE =
   "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
@@ -66,7 +80,8 @@ function makeContext(
   return {
     turnId: 1,
     signal: options.signal ?? new AbortController().signal,
-    trace: options.traceId === undefined ? undefined : { traceId: options.traceId },
+    trace:
+      options.traceId === undefined ? undefined : { traceId: options.traceId },
     toolCall,
     toolCalls: [toolCall],
     args,
@@ -93,6 +108,11 @@ describe('AgentToolApprovalService', () => {
   let recorded: PermissionApprovalResultRecord[];
   let eventBus: IEventBus;
   let hostArgs: HostArgs;
+  let review: ReturnType<typeof vi.fn<IAgentApprovalReviewService['review']>>;
+  let consumeApproved: ReturnType<
+    typeof vi.fn<IAgentApprovalReviewService['consumeApprovedInteraction']>
+  >;
+  let reviewEnabled: boolean;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -101,18 +121,29 @@ describe('AgentToolApprovalService', () => {
     records = [];
     recorded = [];
     hostArgs = { requestHeaders: {} };
+    reviewEnabled = false;
+    review = vi.fn(async () => ({ kind: 'approve' as const }));
+    consumeApproved = vi.fn();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.define(IHeadlessRun, HeadlessRunControl);
+        reg.defineInstance(IAgentApprovalReviewService, {
+          _serviceBrand: undefined,
+          isEnabled: () => reviewEnabled,
+          consumeApprovedInteraction: consumeApproved,
+          review,
+        });
         reg.definePartialInstance(IBootstrapService, {
-          get args() {
-            return hostArgs;
-          },
+          get args() { return hostArgs; },
         });
         reg.defineInstance(
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
         );
-        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.defineInstance(
+          IAgentPermissionModeService,
+          stubPermissionModeService(() => mode),
+        );
         reg.defineInstance(IAgentPermissionRulesService, {
           _serviceBrand: undefined,
           rules: [],
@@ -122,14 +153,17 @@ describe('AgentToolApprovalService', () => {
             recorded.push(record);
           },
         });
-        reg.defineInstance(ISessionContext, makeSessionContext({
-          sessionId: 'test-session',
-          workspaceId: 'test-workspace',
-          sessionDir: '/tmp/test-session',
-          sessionScope: 'sessions/test-workspace/test-session',
-          metaScope: 'sessions/test-workspace/test-session/session-meta',
-          cwd: '/tmp/test-session',
-        }));
+        reg.defineInstance(
+          ISessionContext,
+          makeSessionContext({
+            sessionId: 'test-session',
+            workspaceId: 'test-workspace',
+            sessionDir: '/tmp/test-session',
+            sessionScope: 'sessions/test-workspace/test-session',
+            metaScope: 'sessions/test-workspace/test-session/session-meta',
+            cwd: '/tmp/test-session',
+          }),
+        );
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IEventBus, eventBus);
         const dispatcher: IEventDispatcher = {
@@ -144,7 +178,9 @@ describe('AgentToolApprovalService', () => {
       },
       strict: true,
     });
-    (eventBus as EventBusService).activateAgent(ix.get(IAgentScopeContext).agentContext);
+    (eventBus as EventBusService).activateAgent(
+      ix.get(IAgentScopeContext).agentContext,
+    );
   });
   afterEach(() => {
     disposables.dispose();
@@ -157,7 +193,9 @@ describe('AgentToolApprovalService', () => {
 
   function useBroker(
     request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
-  ): ReturnType<typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
+  ): ReturnType<
+    typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>
+  > {
     const requestSpy = vi.fn(request);
     const seen = new Set<string>();
     disposables.add(
@@ -170,9 +208,11 @@ describe('AgentToolApprovalService', () => {
           })) {
             if (seen.has(pending.id)) continue;
             seen.add(pending.id);
-            void requestSpy(pending.payload as ApprovalRequest).then((response) => {
-              interactions.respond(pending.id, response);
-            });
+            void requestSpy(pending.payload as ApprovalRequest).then(
+              (response) => {
+                interactions.respond(pending.id, response);
+              },
+            );
           }
         }),
       ),
@@ -196,14 +236,175 @@ describe('AgentToolApprovalService', () => {
       IAgentScopeContext,
       makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
     );
-    (eventBus as EventBusService).activateAgent(ix.get(IAgentScopeContext).agentContext);
+    (eventBus as EventBusService).activateAgent(
+      ix.get(IAgentScopeContext).agentContext,
+    );
   }
+
+  describe('automatic review without manual fallback', () => {
+    it('executes an approval without requesting an interaction', async () => {
+      reviewEnabled = true;
+      const broker = useBroker(async () => ({ decision: 'rejected' }));
+      const events = subscribeApprovalEvents();
+      expect(
+        await make().requestToolApproval(
+          makeContext('Write'),
+          ask(),
+          'fallback-ask',
+        ),
+      ).toBeUndefined();
+      expect(review).toHaveBeenCalledOnce();
+      expect(broker).not.toHaveBeenCalled();
+      expect(events.requested).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'returns a denial and preserves stopTurn=%s without asking',
+      async (stopTurn) => {
+        reviewEnabled = true;
+        review.mockResolvedValueOnce({
+          kind: 'deny',
+          message: 'Insufficient authorization.',
+          stopTurn,
+        });
+        const broker = useBroker(async () => ({ decision: 'approved' }));
+        const events = subscribeApprovalEvents();
+        expect(
+          await make().requestToolApproval(
+            makeContext('Bash'),
+            ask(),
+            'fallback-ask',
+          ),
+        ).toEqual({
+          veto: {
+            isError: true,
+            output: 'Insufficient authorization.',
+            stopTurn,
+          },
+        });
+        expect(broker).not.toHaveBeenCalled();
+        expect(events.requested).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([undefined, { kind: 'ask' }, { kind: 'deny', message: '' }])(
+      'blocks invalid reviewer resolutions without reaching the approval broker: %j',
+      async (resolution) => {
+        reviewEnabled = true;
+        review.mockResolvedValueOnce(
+          resolution as unknown as ApprovalReviewResult,
+        );
+        const broker = useBroker(async () => ({ decision: 'approved' }));
+        const result = await make().requestToolApproval(
+          makeContext('Bash'),
+          ask(),
+          'fallback-ask',
+        );
+        expect(result?.veto).toMatchObject({
+          isError: true,
+          stopTurn: true,
+          output: expect.stringContaining('failed to produce'),
+        });
+        expect(broker).not.toHaveBeenCalled();
+      },
+    );
+
+    it('blocks an unexpected reviewer failure and preserves user cancellation', async () => {
+      reviewEnabled = true;
+      const broker = useBroker(async () => ({ decision: 'approved' }));
+      review.mockRejectedValueOnce(new Error('Unexpected runtime failure'));
+      expect(
+        (
+          await make().requestToolApproval(
+            makeContext('Bash'),
+            ask(),
+            'fallback-ask',
+          )
+        )?.veto,
+      ).toMatchObject({ isError: true, stopTurn: true });
+      review.mockRejectedValueOnce(new UserCancellationError());
+      await expect(
+        make().requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
+      ).rejects.toBeInstanceOf(UserCancellationError);
+      expect(broker).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        tool: 'ExitPlanMode',
+        origin: 'exit-plan-mode-review-ask',
+        display: {
+          kind: 'plan_review',
+          plan: 'A plan with alternatives.',
+        } as ToolInputDisplay,
+      },
+      {
+        tool: 'CreateGoal',
+        origin: 'goal-start-review-ask',
+        display: {
+          kind: 'goal_start',
+          objective: 'A requested goal.',
+          mode: 'manual',
+        } as ToolInputDisplay,
+      },
+    ])(
+      'preserves the existing $tool business interaction',
+      async ({ tool, origin, display }) => {
+        reviewEnabled = true;
+        const callback = vi.fn(() => ({ kind: 'approve' as const }));
+        const broker = useBroker(async () => ({ decision: 'approved' }));
+        await make().requestToolApproval(
+          makeContext(tool, {}, { display }),
+          ask({ resolveApproval: callback }),
+          origin,
+        );
+        expect(broker).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledOnce();
+        expect(review).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not exempt a permission ask merely because the tool has a plan display', async () => {
+      reviewEnabled = true;
+      review.mockResolvedValueOnce({
+        kind: 'deny',
+        message: 'Explicit ask rule.',
+      });
+      const broker = useBroker(async () => ({ decision: 'approved' }));
+      const result = await make().requestToolApproval(
+        makeContext(
+          'ExitPlanMode',
+          {},
+          { display: { kind: 'plan_review', plan: 'A plan.' } },
+        ),
+        ask({ resolveApproval: () => ({ kind: 'approve' }) }),
+        'user-configured-ask',
+      );
+      expect(result?.veto?.isError).toBe(true);
+      expect(broker).not.toHaveBeenCalled();
+    });
+
+    it('retains normal approval when auto-review is off', async () => {
+      const broker = useBroker(async () => ({ decision: 'rejected' }));
+      await make().requestToolApproval(
+        makeContext('Write'),
+        ask(),
+        'fallback-ask',
+      );
+      expect(broker).toHaveBeenCalledOnce();
+      expect(review).not.toHaveBeenCalled();
+    });
+  });
 
   describe('resolvePermissionResolution', () => {
     it('maps an approve without metadata to undefined', async () => {
       const svc = make();
       await expect(
-        svc.resolvePermissionResolution({ kind: 'approve' }, makeContext('Bash'), 'p'),
+        svc.resolvePermissionResolution(
+          { kind: 'approve' },
+          makeContext('Bash'),
+          'p',
+        ),
       ).resolves.toBeUndefined();
     });
 
@@ -233,9 +434,16 @@ describe('AgentToolApprovalService', () => {
     it('uses a default reason when a deny has no message', async () => {
       const svc = make();
       await expect(
-        svc.resolvePermissionResolution({ kind: 'deny' }, makeContext('Bash'), 'p'),
+        svc.resolvePermissionResolution(
+          { kind: 'deny' },
+          makeContext('Bash'),
+          'p',
+        ),
       ).resolves.toEqual({
-        veto: { output: 'Tool "Bash" was denied by permission policy.', isError: true },
+        veto: {
+          output: 'Tool "Bash" was denied by permission policy.',
+          isError: true,
+        },
       });
     });
 
@@ -280,7 +488,11 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await expect(
-        svc.requestToolApproval(makeContext('Bash', { command: 'printf first' }), ask(), 'fallback-ask'),
+        svc.requestToolApproval(
+          makeContext('Bash', { command: 'printf first' }),
+          ask(),
+          'fallback-ask',
+        ),
       ).resolves.toBeUndefined();
 
       expect(request).toHaveBeenCalledTimes(1);
@@ -295,6 +507,8 @@ describe('AgentToolApprovalService', () => {
           toolName: 'Bash',
           action: 'Approve Bash',
           toolInput: { command: 'printf first' },
+          cwd: '/tmp/test-session',
+          approvalRule: 'Bash',
           display: {
             kind: 'generic',
             summary: 'Approve Bash',
@@ -313,6 +527,8 @@ describe('AgentToolApprovalService', () => {
           toolName: 'Bash',
           action: 'Approve Bash',
           toolInput: { command: 'printf first' },
+          cwd: '/tmp/test-session',
+          approvalRule: 'Bash',
           display: {
             kind: 'generic',
             summary: 'Approve Bash',
@@ -322,12 +538,33 @@ describe('AgentToolApprovalService', () => {
           selectedLabel: 'Approve once',
         }),
       );
+      expect(
+        interactions.findOne({
+          kind: 'approval',
+          resolved: true,
+          tags: { sessionId: 'test-session', agentId: 'main' },
+        }),
+      ).toMatchObject({
+        resolved: true,
+        payload: {
+          toolInput: { command: 'printf first' },
+          cwd: '/tmp/test-session',
+          approvalRule: 'Bash',
+        },
+        response: { decision: 'approved' },
+      });
+      expect(consumeApproved).toHaveBeenCalledWith(
+        expect.stringMatching(/^approval_/),
+      );
     });
 
     it('uses the execution description and display when provided', async () => {
       const request = useBroker(async () => ({ decision: 'approved' }));
       const svc = make();
-      const display: ToolInputDisplay = { kind: 'command', command: 'rm -rf build' };
+      const display: ToolInputDisplay = {
+        kind: 'command',
+        command: 'rm -rf build',
+      };
 
       await svc.requestToolApproval(
         makeContext(
@@ -348,6 +585,9 @@ describe('AgentToolApprovalService', () => {
         toolName: 'Bash',
         action: 'clean build output',
         display,
+        toolInput: { command: 'rm -rf build' },
+        cwd: '/tmp/test-session',
+        approvalRule: 'Bash',
       });
     });
 
@@ -360,7 +600,9 @@ describe('AgentToolApprovalService', () => {
 
       const brokerId = request.mock.calls[0]![0].id;
       expect(brokerId).toMatch(/^approval_/);
-      expect(events.requested.mock.calls[0]![0]).toMatchObject({ id: brokerId });
+      expect(events.requested.mock.calls[0]![0]).toMatchObject({
+        id: brokerId,
+      });
       expect(events.resolved.mock.calls[0]![0]).toMatchObject({ id: brokerId });
     });
 
@@ -373,7 +615,11 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await expect(
-        svc.requestToolApproval(makeContext('Custom', { query: 'first' }), ask(), 'fallback-ask'),
+        svc.requestToolApproval(
+          makeContext('Custom', { query: 'first' }),
+          ask(),
+          'fallback-ask',
+        ),
       ).resolves.toBeUndefined();
 
       expect(recorded).toHaveLength(1);
@@ -393,13 +639,18 @@ describe('AgentToolApprovalService', () => {
           session_cache_written: true,
         }),
       });
+      expect(consumeApproved).not.toHaveBeenCalled();
     });
 
     it('keeps approved-once responses out of the session cache', async () => {
       useBroker(async () => ({ decision: 'approved' }));
       const svc = make();
 
-      await svc.requestToolApproval(makeContext('Custom'), ask(), 'fallback-ask');
+      await svc.requestToolApproval(
+        makeContext('Custom'),
+        ask(),
+        'fallback-ask',
+      );
 
       expect(recorded).toHaveLength(1);
       expect(recorded[0]).toMatchObject({
@@ -423,7 +674,8 @@ describe('AgentToolApprovalService', () => {
         svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
       ).resolves.toEqual({
         veto: {
-          output: 'Tool "Bash" was not run because the user rejected the approval request.',
+          output:
+            'Tool "Bash" was not run because the user rejected the approval request.',
           isError: true,
         },
       });
@@ -447,7 +699,10 @@ describe('AgentToolApprovalService', () => {
     });
 
     it('tracks cancelled approval requests', async () => {
-      useBroker(async () => ({ decision: 'cancelled', feedback: 'request closed' }));
+      useBroker(async () => ({
+        decision: 'cancelled',
+        feedback: 'request closed',
+      }));
       const svc = make();
 
       await expect(
@@ -477,7 +732,11 @@ describe('AgentToolApprovalService', () => {
       ['cancelled', { decision: 'cancelled' }, 'cancelled', false],
       [
         'revise feedback',
-        { decision: 'rejected', selectedLabel: 'Revise', feedback: 'Add verification.' },
+        {
+          decision: 'rejected',
+          selectedLabel: 'Revise',
+          feedback: 'Add verification.',
+        },
         'rejected',
         true,
       ],
@@ -535,7 +794,9 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'exit-plan-mode-review-ask',
       );
-      const expectation = expect(promise).rejects.toThrow('approval transport closed');
+      const expectation = expect(promise).rejects.toThrow(
+        'approval transport closed',
+      );
       controller.abort(error);
       await expectation;
 
@@ -563,7 +824,9 @@ describe('AgentToolApprovalService', () => {
 
       const promise = svc.requestToolApproval(
         makeContext('ExitPlanMode', {}, { signal: controller.signal }),
-        ask({ resolveError: () => ({ kind: 'deny', message: 'review unavailable' }) }),
+        ask({
+          resolveError: () => ({ kind: 'deny', message: 'review unavailable' }),
+        }),
         'exit-plan-mode-review-ask',
       );
       controller.abort(new Error('approval transport closed'));
@@ -584,7 +847,9 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'fallback-ask',
       );
-      const expectation = expect(promise).rejects.toBeInstanceOf(UserCancellationError);
+      const expectation = expect(promise).rejects.toBeInstanceOf(
+        UserCancellationError,
+      );
       controller.abort(new UserCancellationError());
       await expectation;
 
@@ -592,6 +857,24 @@ describe('AgentToolApprovalService', () => {
       expect(events.resolved).not.toHaveBeenCalled();
       expect(records).toEqual([]);
       expect(recorded).toEqual([]);
+    });
+
+    it.each([
+      ['ExitPlanMode', 'exit-plan-mode-review-ask', { kind: 'plan_review', plan: 'A plan.' }],
+      ['CreateGoal', 'goal-start-review-ask', { kind: 'goal_start', objective: 'A goal.', mode: 'review' }],
+    ] as const)('keeps %s human-only in non-interactive Auto Review', async (tool, origin, display) => {
+      mode = 'review';
+      reviewEnabled = true;
+      hostArgs = { requestHeaders: {}, nonInteractive: true };
+      const unattended = vi.fn(() => ({ kind: 'approve' as const }));
+      const result = await make().requestToolApproval(
+        makeContext(tool, {}, { display: display as ToolInputDisplay }),
+        ask({ resolveApproval: () => ({ kind: 'approve' }), resolveNonInteractive: unattended }),
+        origin,
+      );
+      expect(result?.veto).toMatchObject({ isError: true, output: expect.stringContaining('nobody can approve') });
+      expect(unattended).not.toHaveBeenCalled();
+      expect(review).not.toHaveBeenCalled();
     });
 
     it('denies at once without asking anyone when the host is non-interactive', async () => {
@@ -687,7 +970,9 @@ describe('AgentToolApprovalService', () => {
 
     it('uses the cancelled prefix for cancellations', () => {
       const svc = make();
-      expect(svc.formatApprovalRejectionMessage('Bash', { decision: 'cancelled' })).toBe(
+      expect(
+        svc.formatApprovalRejectionMessage('Bash', { decision: 'cancelled' }),
+      ).toBe(
         'Tool "Bash" was not run because the approval request was cancelled.',
       );
     });

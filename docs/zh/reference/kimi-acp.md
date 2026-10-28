@@ -95,3 +95,7 @@ ACP 客户端在 `session/new` 或 `session/load` 中提供 `mcpServers` 时，A
 
 - [在 IDE 中使用](../guides/ides.md) — Zed / JetBrains 配置步骤和故障排查
 - [kimi 命令参考](./kimi-command.md) — 完整子命令列表
+
+## 实验性审核模式
+
+启用 `experimental.approval_review` 后，会话模式列表和模式配置项新增 `review`（Auto Review）。原有模式 ID 保持语义。加载会话时保留审核模式，权限切换由引擎验证；审核能力关闭时不会静默回退到自动批准。见 [Auto Review](../guides/auto-review.md)。

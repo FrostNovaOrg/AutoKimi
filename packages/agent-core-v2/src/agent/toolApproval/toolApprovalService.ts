@@ -1,3 +1,4 @@
+import { IHeadlessRun } from '#/app/headlessRun/control';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
 
@@ -6,6 +7,11 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { abortable, isUserCancellation } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import {
+  IAgentApprovalReviewService,
+  type ApprovalReviewResult,
+} from '#/agent/approvalReview/approvalReview';
+import '#/agent/approvalReview/approvalReviewService';
 import type {
   ApprovalResponse,
   PermissionPolicyResolution,
@@ -45,15 +51,19 @@ export interface PermissionApprovalRequestedPayload {
   readonly action: string;
   readonly display: ToolInputDisplay;
   readonly toolInput: unknown;
+  readonly cwd?: string;
+  readonly approvalRule?: string;
 }
 
 export class PermissionApprovalRequested extends AgentEvent2<PermissionApprovalRequestedPayload> {
   static override readonly type = 'permission.approval.requested';
   static override readonly observable = true;
 }
-export interface PermissionApprovalRequested extends PermissionApprovalRequestedPayload {}
+export interface PermissionApprovalRequested
+  extends PermissionApprovalRequestedPayload {}
 
-export interface PermissionApprovalResolvedPayload extends PermissionApprovalRequestedPayload {
+export interface PermissionApprovalResolvedPayload
+  extends PermissionApprovalRequestedPayload {
   readonly decision: 'approved' | 'rejected' | 'cancelled' | 'error';
   readonly scope?: 'session';
   readonly feedback?: string;
@@ -65,19 +75,28 @@ export class PermissionApprovalResolved extends AgentEvent2<PermissionApprovalRe
   static override readonly type = 'permission.approval.resolved';
   static override readonly observable = true;
 }
-export interface PermissionApprovalResolved extends PermissionApprovalResolvedPayload {}
+export interface PermissionApprovalResolved
+  extends PermissionApprovalResolvedPayload {}
 
-export class AgentToolApprovalService extends Service implements IAgentToolApprovalService {
+export class AgentToolApprovalService
+  extends Service
+  implements IAgentToolApprovalService
+{
   declare readonly _serviceBrand: undefined;
 
   constructor(
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
-    @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
+    @IAgentPermissionModeService
+    private readonly modeService: IAgentPermissionModeService,
+    @IAgentPermissionRulesService
+    private readonly rulesService: IAgentPermissionRulesService,
     @ISessionContext private readonly session: ISessionContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IAgentApprovalReviewService
+    private readonly reviewer: IAgentApprovalReviewService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
   }
@@ -96,7 +115,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
         return {
           veto: denyToolExecution(
             this.formatDenyMessage(
-              result.message ?? `Tool "${context.toolCall.name}" was denied by permission policy.`,
+              result.message ??
+                `Tool "${context.toolCall.name}" was denied by permission policy.`,
             ),
           ),
         };
@@ -112,10 +132,64 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
     result: Extract<PermissionPolicyResult, { kind: 'ask' }>,
     origin: string,
   ): Promise<BeforeExecuteDecision | undefined> {
+    if (this.headless?.active && !this.reviewer.isEnabled()) {
+      this.headless?.stop('review_disabled');
+      this.headless?.check();
+    }
+    if (this.modeService.mode === 'review' && !this.reviewer.isEnabled()) {
+      return { veto: { output: 'Auto Review is unavailable; this action was denied.', isError: true, stopTurn: true } };
+    }
+    const interactiveReview = !this.headless?.active &&
+      result.resolveApproval !== undefined &&
+      ((origin === 'exit-plan-mode-review-ask' &&
+        context.toolCall.name === 'ExitPlanMode' &&
+        context.execution.display?.kind === 'plan_review') ||
+        (origin === 'goal-start-review-ask' &&
+          context.toolCall.name === 'CreateGoal' &&
+          context.execution.display?.kind === 'goal_start'));
+    if (this.reviewer.isEnabled() && !interactiveReview) {
+      let reviewed: ApprovalReviewResult;
+      try {
+        reviewed = await this.reviewer.review(context, result, origin);
+        if (
+          (reviewed?.kind !== 'approve' && reviewed?.kind !== 'deny') ||
+          (reviewed.kind === 'deny' &&
+            (typeof reviewed.message !== 'string' ||
+              reviewed.message.trim().length === 0))
+        )
+          throw new Error('Invalid automatic review resolution');
+      } catch (error) {
+        context.signal.throwIfAborted();
+        if (isUserCancellation(error)) throw error;
+        return {
+          veto: {
+            ...denyToolExecution(
+              this.formatDenyMessage(
+                'Auto-review failed to produce a valid permission decision; this action was denied and the turn stopped. Do not retry or request a manual permission override.',
+              ),
+            ),
+            stopTurn: true,
+          },
+        };
+      }
+      context.signal.throwIfAborted();
+      if (reviewed.kind === 'deny')
+        return {
+          veto: {
+            ...denyToolExecution(this.formatDenyMessage(reviewed.message)),
+            stopTurn: reviewed.stopTurn,
+          },
+        };
+      return this.resolvePermissionResolution(
+        reviewed,
+        context,
+        'model-approval-review',
+      );
+    }
     const name = context.toolCall.name;
     if (this.bootstrap.args.nonInteractive === true) {
       return this.resolvePermissionResolution(
-        result.resolveNonInteractive?.() ?? {
+        (this.modeService.mode === 'review' && interactiveReview ? undefined : result.resolveNonInteractive?.()) ?? {
           kind: 'deny',
           message: `Tool "${name}" needs approval, but nobody can approve it in a non-interactive run.`,
         },
@@ -144,6 +218,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
     const approvalContext = {
       ...approvalRequest,
       toolInput: context.args,
+      cwd: this.session.cwd,
+      approvalRule: context.execution.approvalRule,
     } satisfies PermissionApprovalRequestedPayload;
     const startedAt = Date.now();
 
@@ -154,17 +230,21 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
       [INTERACTION_TAG_TOOL_CALL_ID]: context.toolCall.id,
     };
     let response: ApprovalResponse;
-    void this.dispatcher.dispatch(new PermissionApprovalRequested(approvalContext));
+    void this.dispatcher.dispatch(
+      new PermissionApprovalRequested(approvalContext),
+    );
     try {
       response = await abortable(
-        interactions.request<typeof approvalRequest, ApprovalResponse>({
+        interactions.request<typeof approvalContext, ApprovalResponse>({
           id: approvalRequest.id,
           kind: 'approval',
-          payload: approvalRequest,
+          payload: approvalContext,
           tags,
         }),
         context.signal,
       );
+      if (response.decision === 'approved' && response.scope !== 'session')
+        this.reviewer.consumeApprovedInteraction(approvalRequest.id);
       context.signal.throwIfAborted();
     } catch (error) {
       if (isUserCancellation(error)) throw error;
@@ -226,7 +306,8 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
       approval_surface: display.kind,
       duration_ms: Date.now() - startedAt,
       session_cache_written: sessionApprovalRule !== undefined,
-      has_feedback: response.feedback !== undefined && response.feedback.length > 0,
+      has_feedback:
+        response.feedback !== undefined && response.feedback.length > 0,
       trace_id: context.trace?.traceId,
     });
 
@@ -237,7 +318,9 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
 
     if (response.decision === 'approved') return undefined;
     return {
-      veto: denyToolExecution(this.formatApprovalRejectionMessage(name, response)),
+      veto: denyToolExecution(
+        this.formatApprovalRejectionMessage(name, response),
+      ),
     };
   }
 

@@ -70,6 +70,10 @@ import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
 import type { SurveyController } from '#/tui/controllers/survey-controller';
 import { handleFeedbackCommand } from '#/tui/commands/info';
+import {
+  approvalReviewDenials,
+  clearApprovalReviewDenials,
+} from '#/tui/commands/review-state';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
 import { createFeedbackArchivePath } from '../../src/feedback/archive';
@@ -119,6 +123,15 @@ vi.mock('../../src/feedback/archive', async (importOriginal) => {
 });
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
+
+vi.mock('#/utils/region', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/utils/region')>();
+  const { KIMI_REGION_PROFILES } = await import('@moonshot-ai/kimi-code-oauth');
+  return { ...actual,
+    currentKimiProfile: () => KIMI_REGION_PROFILES['mainland-cn'],
+    freshKimiProfile: () => KIMI_REGION_PROFILES['mainland-cn'],
+  };
+});
 
 vi.mock('#/utils/client-configs', () => ({
   clientConfigs: {
@@ -173,7 +186,10 @@ interface MessageDriver {
     notifications: import('#/tui/controllers/notify').NotifyController;
     startSubscription(): void;
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
+    resetRuntimeState(): void;
   };
+  noteContextCut(): void;
+  noteCompactionFinished(): void;
   init(): Promise<boolean>;
   handleUserInput(text: string): void;
   toggleToolOutputExpansion(): void;
@@ -587,6 +603,7 @@ async function makeExportedSessionZip(content = 'session zip'): Promise<string> 
 }
 
 afterEach(async () => {
+  clearApprovalReviewDenials();
   resetCapabilitiesCache();
   resetModelSwitchConfirmConfigCache();
   resetEffortSwitchConfigCache();
@@ -5763,6 +5780,98 @@ command = "vim"
     driver.sessionEventHandler.handleEvent(waitForEvent('tool.call.started', extra), () => {});
     driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', extra), () => {});
   }
+
+  function reviewDenialEvent(agentId = 'main'): Event {
+    return waitForEvent('tool.progress', {
+      toolCallId: 'review-denied',
+      update: {
+        kind: 'status',
+        customKind: 'approval.review',
+        text: 'Auto-review denied',
+        customData: {
+          kind: 'one_time_approval_state', version: 1, agentId,
+          toolCallId: 'review-denied', sequence: 1,
+          denials: [{
+            challenge: '00000000-0000-4000-8000-000000000000',
+            toolCallId: 'review-denied', fingerprint: 'a'.repeat(64),
+            reason: 'Synthetic denial', toolName: 'Bash',
+            args: { command: 'npm test' },
+          }],
+        },
+      },
+    });
+  }
+
+  function startReviewDenial(driver: MessageDriver, agentId = 'main'): void {
+    driver.sessionEventHandler.handleEvent(waitForEvent('tool.call.started', {
+      toolCallId: 'review-denied',
+      name: 'Bash',
+      args: { command: 'npm test' },
+    }), () => {});
+    driver.sessionEventHandler.handleEvent(reviewDenialEvent(agentId), () => {});
+  }
+
+  it('associates a review denial that arrives before tool start', async () => {
+    const { driver } = await makeDriver();
+    driver.sessionEventHandler.handleEvent(reviewDenialEvent(), () => {});
+    expect(approvalReviewDenials('ses-1')).toMatchObject([{ toolName: 'Bash', args: { command: 'npm test' } }]);
+  });
+
+  it('associates structured review denials with their original tool call', async () => {
+    const { driver } = await makeDriver();
+    startReviewDenial(driver);
+    expect(approvalReviewDenials('ses-1')).toMatchObject([
+      {
+        toolCallId: 'review-denied',
+        toolName: 'Bash',
+        args: { command: 'npm test' },
+      },
+    ]);
+    driver.sessionEventHandler.handleEvent(waitForEvent('tool.result', {
+      toolCallId: 'review-denied',
+    }), () => {});
+    driver.sessionEventHandler.handleEvent(reviewDenialEvent(), () => {});
+    expect(approvalReviewDenials('ses-1')).toHaveLength(1);
+  });
+
+  it('ignores text-only and subagent review denial events', async () => {
+    const { driver } = await makeDriver();
+    driver.sessionEventHandler.handleEvent(waitForEvent('tool.call.started', {
+      toolCallId: 'review-denied',
+      name: 'Bash',
+      args: {},
+    }), () => {});
+    driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', {
+      toolCallId: 'review-denied',
+      update: { kind: 'status', customKind: 'approval.review', text: 'Auto-review denied' },
+    }), () => {});
+    expect(approvalReviewDenials('ses-1')).toHaveLength(0);
+    startReviewDenial(driver, 'worker');
+    expect(approvalReviewDenials('ses-1')).toHaveLength(0);
+  });
+
+  it('clears review denials on reset, undo and compaction', async () => {
+    const { driver } = await makeDriver();
+    startReviewDenial(driver);
+    expect(approvalReviewDenials('ses-1')).toHaveLength(1);
+    driver.sessionEventHandler.resetRuntimeState();
+    expect(approvalReviewDenials('ses-1')).toHaveLength(0);
+    startReviewDenial(driver);
+    driver.noteContextCut();
+    expect(approvalReviewDenials('ses-1')).toHaveLength(0);
+    startReviewDenial(driver);
+    driver.noteCompactionFinished();
+    expect(approvalReviewDenials('ses-1')).toHaveLength(0);
+  });
+
+  it('displays approval review progress before the tool starts executing', async () => {
+    const { driver } = await makeDriver();
+    const showStatus = vi.spyOn(driver as unknown as { showStatus: (msg: string, color?: string) => void }, 'showStatus');
+    driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', {
+      update: { kind: 'status', customKind: 'approval.review', text: 'Reviewing permission with model…' },
+    }), () => {});
+    expect(showStatus).toHaveBeenCalledWith('Reviewing permission with model…', 'textMuted');
+  });
 
   function pendingSteer(): { session: ReturnType<typeof makeSession>; resolve: () => void; reject: (error: Error) => void } {
     let resolve!: () => void;
@@ -13006,23 +13115,23 @@ describe('KimiTUI session rating survey', () => {
   });
 
   it('mirrors disable_feedback_survey config changes into appState', async () => {
-    let listener: ((change: { domain: string; value: unknown }) => void) | undefined;
+    const listeners: Array<(change: { domain: string; value: unknown }) => void> = [];
     const unsubscribe = vi.fn();
     const { driver } = await makeDriver(makeSession(), {
       onConfigSectionChanged: vi.fn(
         (fn: (change: { domain: string; value: unknown }) => void) => {
-          listener = fn;
+          listeners.push(fn);
           return unsubscribe;
         },
       ),
     });
-    expect(listener).toBeDefined();
+    expect(listeners.length).toBeGreaterThan(0);
     expect(unsubscribe).not.toHaveBeenCalled();
-    listener?.({ domain: 'disableFeedbackSurvey', value: true });
+    listeners.forEach((listener) => listener({ domain: 'disableFeedbackSurvey', value: true }));
     expect(driver.state.appState.disableFeedbackSurvey).toBe(true);
-    listener?.({ domain: 'disableFeedbackSurvey', value: false });
+    listeners.forEach((listener) => listener({ domain: 'disableFeedbackSurvey', value: false }));
     expect(driver.state.appState.disableFeedbackSurvey).toBeUndefined();
-    listener?.({ domain: 'telemetry', value: false });
+    listeners.forEach((listener) => listener({ domain: 'telemetry', value: false }));
     expect(driver.state.appState.disableFeedbackSurvey).toBeUndefined();
   });
 });
@@ -13339,5 +13448,33 @@ describe('transcript fold block clicks', () => {
     expect(closed).not.toContain('wide-tail');
     expect(closed).toContain('wide-head');
     expect(driver.state.toolOutputExpanded).toBe(true);
+  });
+});
+
+
+describe('approval review submission acknowledgement', () => {
+  it('submits the grant directly to the main session without cache or media interception', async () => {
+    const { driver, session } = await makeDriver();
+    const cache = (driver as unknown as { cacheHint: { maybeInterceptOnSubmit: () => boolean } }).cacheHint;
+    const intercept = vi.spyOn(cache, 'maybeInterceptOnSubmit');
+    let acknowledge!: () => void;
+    session.prompt.mockImplementationOnce(() => new Promise<void>((resolve) => { acknowledge = resolve; }));
+    const pending = KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant');
+    expect(session.prompt).toHaveBeenCalledWith('review-grant');
+    expect(intercept).not.toHaveBeenCalled();
+    expect(driver.state.appState.streamingPhase).toBe('waiting');
+    acknowledge(); await pending;
+  });
+
+  it('rejects unset models and restores an idle UI after a rejected submission', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.model = '';
+    await expect(KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant')).rejects.toThrow('configured model');
+    expect(session.prompt).not.toHaveBeenCalled();
+    driver.state.appState.model = 'k2';
+    session.prompt.mockRejectedValueOnce(new Error('busy'));
+    await expect(KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, 'review-grant')).rejects.toThrow('busy');
+    expect(driver.state.appState.streamingPhase).toBe('idle');
+    expect(driver.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.content === 'review-grant')).toBe(false);
   });
 });

@@ -1483,6 +1483,7 @@ describe('McpConnectionManager', () => {
       response_types: ['code'],
     } satisfies OAuthClientInformationFull);
     const revokedTokens: StoredMcpOAuthTokens = {
+      issuer: server.origin,
       access_token: 'revoked-access-token',
       refresh_token: 'revoked-refresh-token',
       token_type: 'Bearer',
@@ -1618,6 +1619,7 @@ describe('McpConnectionManager', () => {
       expect(cm.get('hyper')?.status).toBe('connected');
       await oauthService.getProvider('hyper', server.url).saveTokens({
         access_token: 'valid-access-token',
+        issuer: server.origin,
         token_type: 'Bearer',
         obtained_at: Date.now() - 60_000,
       } as StoredMcpOAuthTokens);

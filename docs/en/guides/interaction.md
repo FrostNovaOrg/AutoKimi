@@ -62,9 +62,11 @@ When the agent calls a tool that has side effects — modifying files, running c
 
 Approvals are not triggered for regular tool calls in Ask When Needed mode, nor for writes to plan files in Plan mode.
 
-### The three permission modes
+### Permission modes
 
 **Always Ask mode** (formerly Manual) is the default: read-only operations run automatically, while every other action — editing files, running commands — asks for your confirmation one by one. Use it when you want full control over every change.
+
+**Auto Review mode** is an opt-in experimental mode: a separate model reviews pending tool approvals, and uncertain or failed reviews deny execution. Enable the capability first, then select it with `/permission`. See [Auto Review](./auto-review.md) for configuration and one-time approval.
 
 **Ask When Needed mode** (formerly YOLO), enabled with `/yolo`, auto-approves regular tool calls, making it suitable for batch tasks you know are safe. It still asks before sensitive actions — accessing sensitive files such as `.env` or SSH keys, running dangerous commands such as `shutdown` or `rm -rf`, or exiting Plan mode — and the agent can still ask you questions.
 

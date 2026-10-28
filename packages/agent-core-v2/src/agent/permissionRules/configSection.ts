@@ -38,6 +38,7 @@ export const PermissionRuleSchema = z.object({
 export const PermissionConfigSchema = z.object({
   rules: z.array(PermissionRuleSchema).optional(),
   dangerousCommandGuard: z.boolean().optional(),
+  review: z.unknown().optional(),
 });
 
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
@@ -90,6 +91,10 @@ export const permissionFromToml = (rawSnake: unknown): unknown => {
   if (raw['dangerousCommandGuard'] !== undefined) {
     out['dangerousCommandGuard'] = raw['dangerousCommandGuard'];
   }
+  if (raw['review'] !== undefined) {
+    out['review'] = isPlainObject(raw['review'])
+      ? transformPlainObject(raw['review']) : raw['review'];
+  }
   return out;
 };
 
@@ -132,6 +137,11 @@ export const permissionToToml = (value: unknown, rawSnake: unknown): unknown => 
   delete out['allow'];
   delete out['ask'];
   const rules = value['rules'];
+  if (isPlainObject(value['review'])) {
+    out['review'] = plainObjectToToml(value['review'], undefined);
+  } else if (value['review'] === undefined) {
+    delete out['review'];
+  }
   if (Array.isArray(rules)) {
     out['rules'] = rules.map((rule) =>
       isPlainObject(rule) ? plainObjectToToml(rule, undefined) : rule,

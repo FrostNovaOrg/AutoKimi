@@ -95,3 +95,7 @@ When an ACP client provides `mcpServers` in `session/new` or `session/load`, the
 
 - [Using in IDEs](../guides/ides.md) — Zed / JetBrains configuration steps and troubleshooting
 - [`kimi` Command Reference](./kimi-command.md) — Complete subcommand list
+
+## Experimental review mode
+
+When `experimental.approval_review` is enabled, session mode lists and the mode configuration option also offer `review` (Auto Review). The existing mode IDs keep their behavior. Review survives session load and mode changes are validated by the engine; a disabled reviewer cannot silently fall back to automatic approval. See [Auto Review](../guides/auto-review.md).

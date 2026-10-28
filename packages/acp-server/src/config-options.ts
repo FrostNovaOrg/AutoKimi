@@ -21,7 +21,7 @@
 
 import type { SessionConfigOption, SessionConfigSelectOption } from '@agentclientprotocol/sdk';
 
-import { ACP_MODES, type AcpModeId } from './modes';
+import { availableAcpModes, type AcpModeId } from './modes';
 import type { AcpModelEntry } from './model-catalog';
 
 /**
@@ -88,8 +88,8 @@ function thinkingOptionName(value: string): string {
  * `SessionConfigOption` `mode` arm. Order is preserved (default → plan → auto →
  * yolo).
  */
-export function buildModeOption(currentModeId: AcpModeId): SessionConfigOption {
-  const options: SessionConfigSelectOption[] = ACP_MODES.map((mode) => ({
+export function buildModeOption(currentModeId: AcpModeId, reviewAvailable = false): SessionConfigOption {
+  const options: SessionConfigSelectOption[] = availableAcpModes(reviewAvailable || currentModeId === 'review').map((mode) => ({
     value: mode.id,
     name: mode.name,
     description: mode.description,
@@ -121,6 +121,7 @@ export function buildSessionConfigOptions(
   currentBaseModelId: string,
   currentThinkingLevel: string,
   currentModeId: AcpModeId,
+  reviewAvailable = false,
 ): SessionConfigOption[] {
   const currentModelEntry = models.find((m) => m.id === currentBaseModelId);
   const showThinking = currentModelEntry?.thinkingSupported === true;
@@ -132,6 +133,6 @@ export function buildSessionConfigOptions(
     const level = alwaysThinking && currentThinkingLevel === 'off' ? 'on' : currentThinkingLevel;
     out.push(buildThinkingOption(level, alwaysThinking, currentModelEntry?.supportEfforts));
   }
-  out.push(buildModeOption(currentModeId));
+  out.push(buildModeOption(currentModeId, reviewAvailable));
   return out;
 }

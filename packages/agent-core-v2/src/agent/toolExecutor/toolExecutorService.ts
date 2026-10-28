@@ -1,3 +1,4 @@
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -158,6 +159,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     private readonly resultTruncation: IAgentToolResultTruncationService,
     @IAgentStateService private readonly states: IAgentStateService,
     @ILogService private readonly log?: ILogService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     this.states.contributeState(toolExecutorToolCallDupTypesKey);
     this.states.contributeState(toolExecutorDupTypeTurnIdKey);
@@ -180,6 +182,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     options: ToolExecutorExecuteOptions,
   ): AsyncIterable<ToolExecutionResult> {
     if (calls.length === 0) return;
+    const headless = this.headless;
+    if (headless?.active) options = { ...options, signal: AbortSignal.any([options.signal, headless.signal]) };
     if (options.turnId !== this.dupTypeTurnId) {
       this.dupTypeTurnId = options.turnId;
       this.toolCallDupTypes.clear();
@@ -236,7 +240,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
+              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', error }),
             ),
           );
         }
@@ -266,7 +270,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
+            (error): SettledToolExecutionResult => ({ status: 'rejected', error }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -484,7 +488,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+          (error): SettledTimedToolResult => ({ status: 'rejected', index, error }),
         ),
       );
     }

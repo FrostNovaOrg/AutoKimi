@@ -2348,12 +2348,16 @@ function createWorkspaceContextStub(
 
 function createPermissionModeService(initialMode: PermissionMode): IAgentPermissionModeService {
   let mode = initialMode;
+  let revision = 0;
   const service: IAgentPermissionModeService = {
+    getMode: () => mode,
     _serviceBrand: undefined,
     get mode() {
       return mode;
     },
+    get revision() { return revision; },
     setMode: (nextMode) => {
+      if (mode !== nextMode) revision += 1;
       mode = nextMode;
     },
     setModeAndBroadcast: (nextMode) => {

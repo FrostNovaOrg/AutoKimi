@@ -421,7 +421,9 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         : wrapSubagentModelError(error, binding.model, this.profile.data().modelAlias);
     }
     const created = this.agentLifecycle.handleOf(createdContext.agentId)!;
-    created.accessor.get(IAgentPermissionModeService).setMode('auto');
+    created.accessor.get(IAgentPermissionModeService).setMode(
+      requester.accessor.get(IAgentPermissionModeService).mode === 'review' ? 'review' : 'auto',
+    );
     const agentId = createdContext.agentId;
 
     emitAgentRunSpawned(requester, agentId, {

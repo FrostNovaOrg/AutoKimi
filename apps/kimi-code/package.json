@@ -116,6 +116,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81",
     "chokidar": "^4.0.3",
     "qrcode": "^1.5.4",
     "ws": "^8.18.0"

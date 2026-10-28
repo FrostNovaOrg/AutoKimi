@@ -123,7 +123,7 @@ manual_tick = false
 #   scope: core
 # ##########################################################################
 
-# default_permission_mode: "manual" | "auto" | "yolo"
+# default_permission_mode: "manual" | "review" | "auto" | "yolo"
 
 # ##########################################################################
 # defaultPlanMode (config.toml: default_plan_mode)
@@ -325,6 +325,7 @@ merge_all_available_skills = true
   # pattern: string
   # reason: string
 # dangerous_command_guard: boolean
+# review: any
 
 # ##########################################################################
 # providers

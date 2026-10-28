@@ -338,6 +338,15 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
     expect(sdk.createInputs[0]?.thinking).toBe("off");
   });
 
+  it("preserves Auto Review when an existing session is opened or attached", async () => {
+    const { runtime, sdk } = createRuntime();
+    const saved = sdk.addSession("review-session", "/workspace", { permission: "review" });
+    await runtime.openSession(openOptions({ sessionId: "review-session", yoloMode: true }));
+    expect(saved.setPermissions).toEqual([]);
+    await runtime.openSession(openOptions({ sessionId: "review-session", yoloMode: false }));
+    expect(saved.setPermissions).toEqual([]);
+  });
+
   it("resumes the requested SDK session instead of creating a replacement", async () => {
     const { runtime, sdk } = createRuntime();
     sdk.addSession("saved-1", "/workspace");

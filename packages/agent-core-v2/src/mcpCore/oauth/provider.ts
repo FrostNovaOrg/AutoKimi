@@ -81,7 +81,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     const metaFile = `${this.storeKey}${META_SUFFIX}`;
     this.tokenTransaction = new OAuthTokenTransaction({
       key: this.storeKey,
-      read: async () => this.store.read<OAuthTokens>(tokensFile),
+      read: () => this.tokens(),
       write: async (tokens) => {
         const incoming = tokens as StoredMcpOAuthTokens;
         await this.store.write(tokensFile, {
@@ -92,7 +92,13 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       remove: async () => {
         await this.store.remove(tokensFile);
       },
-      parse: (value) => OAuthTokensSchema.safeParse(value).data,
+      parse: (value) => {
+        const tokens = OAuthTokensSchema.safeParse(value).data;
+        const issuer = this.discoveryCache?.authorizationServerUrl;
+        return tokens !== undefined && issuer !== undefined
+          ? { ...tokens, issuer: String(issuer) }
+          : tokens;
+      },
       normalize: (tokens) => OAuthTokensSchema.safeParse(tokens).data ?? tokens,
       track: options.track,
       afterCommit: async (tokens) => {
@@ -163,19 +169,28 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     await this.ready;
-    return this.clientCache;
+    return typeof this.clientCache?.issuer === 'string' && this.clientCache.issuer.length > 0
+      ? this.clientCache
+      : undefined;
   }
 
   async saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
+    await this.ready;
+    const issuer = this.discoveryCache?.authorizationServerUrl;
+    if (info.issuer === undefined && issuer !== undefined) info = { ...info, issuer: String(issuer) };
     await this.store.write(`${this.storeKey}${CLIENT_SUFFIX}`, info);
     this.clientCache = info;
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
-    return this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`);
+    const tokens = await this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`);
+    return typeof tokens?.issuer === 'string' && tokens.issuer.length > 0 ? tokens : undefined;
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    await this.ready;
+    const issuer = this.discoveryCache?.authorizationServerUrl;
+    if (tokens.issuer === undefined && issuer !== undefined) tokens = { ...tokens, issuer: String(issuer) };
     await this.tokenTransaction.save(tokens);
   }
 
@@ -199,6 +214,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    await this.ready;
     await this.store.write(`${this.storeKey}${DISCOVERY_SUFFIX}`, state);
     this.discoveryCache = state;
   }
@@ -239,6 +255,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   async clearCredentials(
     scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery',
   ): Promise<void> {
+    await this.ready;
     if (scope === 'verifier') {
       this._codeVerifier = undefined;
       this.onCredentialsInvalidated?.(scope);

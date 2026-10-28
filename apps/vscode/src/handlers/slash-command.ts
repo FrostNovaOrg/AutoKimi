@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import * as vscode from "vscode";
+import type { PermissionMode } from "@moonshot-ai/kimi-code-sdk";
 
 import type { SessionRuntime } from "../runtime/session-runtime";
 import {
@@ -21,6 +22,7 @@ const HOST_COMMANDS = new Set([
   "yolo",
   "auto",
   "afk",
+  "permission",
   "plan",
   "add-dir",
   "export",
@@ -92,6 +94,33 @@ export async function runHostSlashCommand(
         case "plan":
           await runPlanCommand(runtime, command.args, emit);
           break;
+        case "permission": {
+          const modes = [
+            { label: "Always Ask", mode: "manual" },
+            { label: "Auto Review", mode: "review" },
+            { label: "Ask When Needed", mode: "yolo" },
+            { label: "Never Ask", mode: "auto" },
+          ] as const;
+          const input = command.args.trim().toLowerCase();
+          let mode: PermissionMode;
+          if (input.length > 0) {
+            const selected = modes.find((entry) => entry.mode === input);
+            if (selected === undefined) throw new Error("Usage: /permission [manual|review|yolo|auto]");
+            mode = selected.mode;
+          } else {
+            const available = (await ctx.harness.getExperimentalFeatures())
+              .some((entry) => entry.id === "approval_review" && entry.enabled);
+            const selected = await vscode.window.showQuickPick(
+              modes.filter((entry) => entry.mode !== "review" || available),
+              { title: "Select permission mode" },
+            );
+            if (selected === undefined) break;
+            mode = selected.mode;
+          }
+          await runtime.setPermissionMode(mode);
+          emit(`Permission mode: ${modes.find((entry) => entry.mode === mode)!.label}.`);
+          break;
+        }
         case "add-dir":
           await runAddDirCommand(runtime, command.args, emit);
           break;

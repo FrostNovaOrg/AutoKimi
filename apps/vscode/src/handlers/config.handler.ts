@@ -18,6 +18,7 @@ import { VSCodeSettings } from "../config/vscode-settings";
 import type { Handler } from "./types";
 
 const SLASH_COMMANDS: SlashCommandInfo[] = [
+  { name: "permission", aliases: [], description: "Select permission mode. Usage: /permission [manual|review|yolo|auto]" },
   { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
   { name: "compact", aliases: [], description: "Compact the conversation context" },
   { name: "clear", aliases: ["reset"], description: "Clear the context" },

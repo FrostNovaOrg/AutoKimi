@@ -1,6 +1,6 @@
+import { reviewSafeWrite } from './reviewSafeWrite';
 import { createReadStream } from 'node:fs';
 import {
-  appendFile,
   lstat,
   open,
   readFile,
@@ -9,7 +9,6 @@ import {
   realpath as nodeRealpath,
   rm,
   stat as nodeStat,
-  writeFile,
 } from 'node:fs/promises';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -59,7 +58,7 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeText(path: string, data: string): Promise<void> {
     try {
-      await writeFile(path, data, 'utf8');
+      await reviewSafeWrite(path, data);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'write' });
     }
@@ -67,7 +66,7 @@ export class HostFileSystem implements IHostFileSystem {
 
   async appendText(path: string, data: string): Promise<void> {
     try {
-      await appendFile(path, data, 'utf8');
+      await reviewSafeWrite(path, data, true);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'append' });
     }
@@ -95,7 +94,7 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeBytes(path: string, data: Uint8Array): Promise<void> {
     try {
-      await writeFile(path, data);
+      await reviewSafeWrite(path, data);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'write' });
     }

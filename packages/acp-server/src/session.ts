@@ -84,7 +84,7 @@ import {
 import { AcpInteractionBridge } from './interaction-bridge';
 import { log } from './log';
 import { projectModelCatalog } from './model-catalog';
-import { ACP_MODES, type AcpModeId, acpModeToToggles, DEFAULT_MODE_ID } from './modes';
+import { availableAcpModes, type AcpModeId, acpModeToToggles, DEFAULT_MODE_ID } from './modes';
 import { projectHistoryToSessionUpdates } from './replay';
 import { buildAcpSkillSlashCommands, detectSlashIntent } from './slash';
 
@@ -203,6 +203,7 @@ export class AcpSession {
   private currentThinkingLevel: string = 'off';
   /** Current ACP mode. */
   private currentModeId: AcpModeId = DEFAULT_MODE_ID;
+  private reviewAvailable = false;
   /**
    * Cached session skill summaries — the backing data for slash-intent
    * detection and `availableCommands()`. Seeded in `init()` and refreshed on
@@ -290,6 +291,9 @@ export class AcpSession {
    * awaited before the first `prompt` so no early turn events are missed.
    */
   async init(): Promise<void> {
+    this.reviewAvailable = await this.klient.global.flags.enabled('approval_review');
+    const permission = await this.agent.getPermission();
+    if (permission === 'review') this.currentModeId = 'review';
     const events = this.agent.events;
     this.subscriptions.push(
       events.on('assistant.delta', (event) => {
@@ -1032,12 +1036,14 @@ export class AcpSession {
    * thinking-capable (see `buildSessionConfigOptions`).
    */
   async configOptions(): Promise<SessionConfigOption[]> {
+    this.reviewAvailable = await this.klient.global.flags.enabled('approval_review');
     const models = projectModelCatalog(await this.klient.global.kosong.listModels());
     return buildSessionConfigOptions(
       models,
       this.currentModelId,
       this.currentThinkingLevel,
       this.currentModeId,
+      this.reviewAvailable,
     );
   }
 
@@ -1047,7 +1053,7 @@ export class AcpSession {
    * taxonomy the `mode` config-option arm projects.
    */
   modeState(): SessionModeState {
-    return { currentModeId: this.currentModeId, availableModes: [...ACP_MODES] };
+    return { currentModeId: this.currentModeId, availableModes: availableAcpModes(this.reviewAvailable || this.currentModeId === 'review') };
   }
 
   /**
@@ -1118,6 +1124,9 @@ export class AcpSession {
 
   /** Switch the ACP mode (plan mode + permission mode). */
   async setMode(id: AcpModeId): Promise<void> {
+    if (id === 'review' && !(await this.klient.global.flags.enabled('approval_review'))) {
+      throw new Error('Auto Review is unavailable; enable experimental.approval_review first.');
+    }
     const { plan, permission } = acpModeToToggles(id);
     if (plan) {
       await this.agent.enterPlan();

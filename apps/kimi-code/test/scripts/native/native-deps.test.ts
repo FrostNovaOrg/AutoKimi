@@ -36,6 +36,14 @@ describe('isSupportedTarget', () => {
 });
 
 describe('resolveTargetDeps', () => {
+  it('ships executable seccomp helpers for Linux and no Linux helper on other platforms', () => {
+    for (const target of SUPPORTED_TARGETS) {
+      const sandbox = resolveTargetDeps(target).find((dependency) => dependency.id === 'shell-sandbox');
+      expect(sandbox?.nativeFileRelatives).toEqual(target.startsWith('linux-')
+        ? [`vendor/seccomp/${target.slice('linux-'.length)}/apply-seccomp`]
+        : []);
+    }
+  });
   it('returns one descriptor per package for darwin-arm64', () => {
     const deps = resolveTargetDeps('darwin-arm64');
     const names = deps.map((d) => d.resolvedName);

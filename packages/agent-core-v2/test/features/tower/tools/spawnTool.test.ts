@@ -48,6 +48,7 @@ import { stubAgentContext } from '../../../agent/agentContext/stubs';
 
 const execFileAsync = promisify(execFile);
 const signal = new AbortController().signal;
+let callerPermission: PermissionMode = 'manual';
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -171,11 +172,12 @@ describe('TowerSpawnTool', () => {
         },
       },
     } as never;
+    callerPermission = 'manual';
     const mainHandle = {
       id: 'main',
       accessor: {
         get: (id: unknown) =>
-          id === (IEventBus as unknown)
+          id === (IAgentPermissionModeService as unknown) ? { mode: callerPermission } : id === (IEventBus as unknown)
             ? ix.get(IEventBus)
             : id === (IAgentLifecycleService as unknown)
               ? { list: () => [], handleOf: () => undefined }
@@ -503,6 +505,13 @@ describe('TowerSpawnTool', () => {
 
     expect(result.isError).toBeUndefined();
     expect(createdSetMode).toHaveBeenCalledWith('auto');
+  });
+
+  it('inherits Auto Review instead of forcing Never Ask', async () => {
+    callerPermission = 'review';
+    const result = await execute(WORKER_ARGS);
+    expect(result.isError).toBeUndefined();
+    expect(createdSetMode).toHaveBeenCalledWith('review');
   });
 
   it('carries the bound model and the spawned agent thinking effort into the registered task info', async () => {

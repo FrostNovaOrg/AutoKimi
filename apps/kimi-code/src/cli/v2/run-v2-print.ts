@@ -348,7 +348,7 @@ export async function runV2Print(
             const agentContext = await ensureMainAgent(session);
             const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
             if (opts.model !== undefined) await agent.accessor.get(IAgentProfileService).setModel(opts.model);
-            agent.accessor.get(IAgentPermissionModeService).setMode('auto');
+            agent.accessor.get(IAgentPermissionModeService).setMode(opts.permissionMode ?? 'auto');
             resolved = { ...resolved, session, agent };
           },
         },
@@ -452,7 +452,7 @@ async function resolveNativeSession(
   const forceAuto = (agent: IAgentScopeHandle): PermissionMode => {
     const permissionMode = agent.accessor.get(IAgentPermissionModeService);
     const previous = permissionMode.mode;
-    permissionMode.setMode('auto');
+    permissionMode.setMode(opts.permissionMode ?? 'auto');
     return previous;
   };
 
@@ -526,7 +526,7 @@ async function resolveNativeSession(
     plan.cancel();
     stderr.write('default_plan_mode is not applied in print mode, because Plan mode waits for your review.\n');
   }
-  agent.accessor.get(IAgentPermissionModeService).setMode('auto');
+  agent.accessor.get(IAgentPermissionModeService).setMode(opts.permissionMode ?? 'auto');
   return {
     session,
     agent,

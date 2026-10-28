@@ -32,6 +32,7 @@ export interface AppState {
   additionalDirs: readonly string[];
   sessionId: string;
   permissionMode: PermissionMode;
+  approvalReviewEnabled?: boolean;
   planMode: boolean;
   /** Resolved profile name from --agent/--agent-file, carried to the
    * lazy-created first session when the TUI starts session-less. */
@@ -337,6 +338,7 @@ export interface TUIStartupOptions {
   readonly continueLast: boolean;
   readonly yolo: boolean;
   readonly auto: boolean;
+  readonly permissionMode?: PermissionMode;
   readonly plan: boolean;
   readonly model?: string;
   /** Resolved profile name from --agent/--agent-file; bound to the startup session only. */

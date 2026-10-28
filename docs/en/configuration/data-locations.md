@@ -126,3 +126,7 @@ Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_
 
 - [Configuration files](./config-files.md) — full reference for `config.toml` fields
 - [Environment variables](./env-vars.md) — detailed usage of `KIMI_CODE_HOME` and related path variables
+
+## Reviewed task data
+
+Budgeted tasks store private requests, snapshots, event journals, and cancellation markers under `runs/<run-id>/` in the existing Kimi data root. Sessions keep their usual directories and locks. The session-level `approval-review.jsonl` audit records decision metadata and fingerprints, not complete tool arguments or model-written explanations. See [Headless runs](../reference/headless-runs.md).

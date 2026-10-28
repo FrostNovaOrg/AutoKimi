@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -71,5 +71,22 @@ describe('HostFileSystem streamed UTF-8 lines', () => {
       for await (const _line of fs.readLines(path, { errors: 'strict' })) {}
     };
     await expect(read()).rejects.toThrow();
+  });
+});
+
+describe('safe file replacement', () => {
+  it('rejects hardlinked text, binary and append targets without altering their inode', async () => {
+    const protectedFile = join(dir, 'AGENTS.md'); const alias = join(dir, 'note.txt');
+    await writeFile(protectedFile, 'original'); await link(protectedFile, alias);
+    for (const operation of [() => fs.writeText(alias, 'changed'), () => fs.writeBytes(alias, Buffer.from('changed')), () => fs.appendText(alias, 'changed')]) {
+      await expect(operation()).rejects.toThrow('hard-linked');
+      expect(await readFile(protectedFile, 'utf8')).toBe('original');
+    }
+  });
+  it('writes and appends ordinary files, following an ordinary file symlink safely', async () => {
+    const target = join(dir, 'note.txt'); const alias = join(dir, 'note-link');
+    await fs.writeText(target, 'first'); await symlink(target, alias);
+    await fs.appendText(alias, ' second'); expect(await readFile(target, 'utf8')).toBe('first second');
+    await fs.writeBytes(alias, Buffer.from('final')); expect(await readFile(target, 'utf8')).toBe('final');
   });
 });

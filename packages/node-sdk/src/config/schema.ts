@@ -116,7 +116,7 @@ export const ThinkingConfigSchema = z.object({
 
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 
-export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
+export const PermissionModeSchema = z.enum(['yolo', 'manual', 'review', 'auto']);
 
 export const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
 export const PermissionRuleScopeSchema = z.enum([
@@ -135,8 +135,22 @@ export const PermissionRuleSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const PermissionReviewConfigSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(120000).default(30000),
+    maxContextChars: z.number().int().min(4000).max(100000).default(24000),
+    twoStage: z.boolean().default(true),
+    shellSandbox: z.boolean().default(true),
+    shellAllowedDomains: z.array(z.string().min(1)).max(100).default([]),
+    policy: z.string().max(8000).optional(),
+  })
+  .strict();
+
 export const PermissionConfigSchema = z.object({
   rules: z.array(PermissionRuleSchema).optional(),
+  dangerousCommandGuard: z.boolean().optional(),
+  review: PermissionReviewConfigSchema.optional(),
 });
 
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
@@ -321,10 +335,32 @@ export const KimiConfigSchema = z.object({
 
 export type KimiConfig = z.infer<typeof KimiConfigSchema>;
 
+export const RuntimeKimiConfigSchema = KimiConfigSchema.extend({
+  permission: PermissionConfigSchema.extend({
+    review: z.unknown().optional(),
+  }).optional(),
+});
+
 const ProviderConfigPatchSchema = ProviderConfigSchema.partial();
 const ModelAliasPatchSchema = ModelAliasSchema.partial();
 const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
-const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
+const PermissionReviewConfigPatchSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(120000).optional(),
+    maxContextChars: z.number().int().min(4000).max(100000).optional(),
+    twoStage: z.boolean().optional(),
+    shellSandbox: z.boolean().optional(),
+    shellAllowedDomains: z.array(z.string().min(1)).max(100).optional(),
+    policy: z.string().max(8000).optional(),
+  })
+  .strict();
+
+const PermissionConfigPatchSchema = PermissionConfigSchema.omit({
+  review: true,
+}).partial().extend({
+  review: PermissionReviewConfigPatchSchema.optional(),
+});
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();

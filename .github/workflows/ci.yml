@@ -17,6 +17,33 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
 
 jobs:
+  review-headless:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      KIMI_DISABLE_TELEMETRY: '1'
+      KIMI_CODE_WATCH: 'false'
+      KIMI_CODE_HOME: ${{ github.workspace }}/.tmp/review-ci/home
+      KIMI_CODE_CACHE_DIR: ${{ github.workspace }}/.tmp/review-ci/cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install --yes bubblewrap socat ripgrep
+      - name: Enable sandbox namespaces on the disposable runner
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          /usr/bin/bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --unshare-net -- /usr/bin/true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @moonshot-ai/kimi-code... run build
+      - run: node scripts/smoke-reviewed-headless.mjs
+      - run: pnpm -C apps/kimi-code run build:native:sea
+      - run: node scripts/smoke-reviewed-headless.mjs --native apps/kimi-code/dist-native/bin/linux-x64/kimi
+
   release-workflow-tests:
     runs-on: ubuntu-latest
     steps:

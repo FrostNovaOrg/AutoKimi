@@ -424,3 +424,9 @@ kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-
 - [Configuration Files](../configuration/config-files.md) — Persistent configuration for `default_model`, permission mode, and other startup parameters
 - [Agent Skills](../customization/skills.md) — Skill file format for directories loaded via `--skills-dir`
 - [Agents and Sub-Agents](../customization/agents.md) — Built-in sub-agents, custom agent files, and main Agent selection via `--agent`
+
+## Auto Review and budgeted tasks
+
+Use `--permission-mode manual|review|yolo|auto` to select a mode explicitly for this invocation. It cannot be combined with `--yolo` or `--auto`. In print mode, an explicit mode is retained throughout the run and session switches; no explicit choice preserves the existing print default. Auto Review requires its experimental capability. See [Auto Review](../guides/auto-review.md).
+
+`kimi exec` starts a reviewed task with progress queries and cumulative budgets. `kimi runs` provides `schema`, `list`, `status`, `events`, and `stop`. These are separate from the existing `-p` output protocol. See [Headless runs](./headless-runs.md).

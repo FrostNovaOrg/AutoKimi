@@ -71,6 +71,7 @@ import {
 import { handleSwarmCommand } from './swarm';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
+import { handleReviewCommand } from './review';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
@@ -206,6 +207,7 @@ export interface SlashCommandHost {
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string): void;
+  sendReviewApproval(session: Session, text: string): Promise<void>;
   /**
    * Submit a prompt that explicitly activates one or more skills inline
    * (v2 engine only): all activations ride the same submission as the prompt
@@ -484,6 +486,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'permission':
       showPermissionPicker(host);
+      return;
+    case 'approval':
+      await handleReviewCommand(host, args);
       return;
     case 'settings':
       showSettingsSelector(host);

@@ -92,7 +92,7 @@ export interface AgentStatusMeta {
   readonly contextTokens?: number;
   readonly maxContextTokens?: number;
   readonly contextUsage?: number;
-  readonly permission?: 'manual' | 'yolo' | 'auto';
+  readonly permission?: 'manual' | 'review' | 'yolo' | 'auto';
   readonly phase?: AgentPhaseMeta;
 }
 

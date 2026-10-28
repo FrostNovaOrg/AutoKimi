@@ -1,3 +1,6 @@
+import { IFlagService } from '#/app/flag/flag';
+import { APPROVAL_REVIEW_FLAG } from '#/agent/approvalReview/config';
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
@@ -16,35 +19,54 @@ import {
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IAgentPermissionModeService, type PermissionModeChangedContext } from './permissionMode';
+import {
+  IAgentPermissionModeService,
+  type PermissionModeChangedContext,
+} from './permissionMode';
 import {
   permissionModeConfiguredKey,
   permissionModeKey,
   PermissionSetMode,
 } from './permissionModeOps';
 
-export const PERMISSION_MODE_REMINDER_ENV = 'KIMI_CODE_PERMISSION_MODE_REMINDER';
+export const PERMISSION_MODE_REMINDER_ENV =
+  'KIMI_CODE_PERMISSION_MODE_REMINDER';
 
-export class AgentPermissionModeService extends Service implements IAgentPermissionModeService {
+export class AgentPermissionModeService
+  extends Service
+  implements IAgentPermissionModeService
+{
   declare readonly _serviceBrand: undefined;
 
-  private readonly _onDidChangeMode = this._register(new Emitter<PermissionModeChangedContext>());
-  readonly onDidChangeMode: Event<PermissionModeChangedContext> = this._onDidChangeMode.event;
+  revision = 0;
+
+  private readonly _onDidChangeMode = this._register(
+    new Emitter<PermissionModeChangedContext>(),
+  );
+  readonly onDidChangeMode: Event<PermissionModeChangedContext> =
+    this._onDidChangeMode.event;
 
   constructor(
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @IAgentLifecycleService
+    private readonly agentLifecycle: IAgentLifecycleService,
     @IAgentReminderService reminder: IAgentReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IBootstrapService bootstrap: IBootstrapService,
+    @IFlagService private readonly flags: IFlagService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
     this.agentState.contributeState(permissionModeKey);
     this.agentState.contributeState(permissionModeConfiguredKey);
-    if (parseBooleanEnv(bootstrap.getEnv(PERMISSION_MODE_REMINDER_ENV)) !== false) {
-      this._register(new PermissionModeInjection(this, reminder, this.agentState));
+    if (
+      parseBooleanEnv(bootstrap.getEnv(PERMISSION_MODE_REMINDER_ENV)) !== false
+    ) {
+      this._register(
+        new PermissionModeInjection(this, reminder, this.agentState),
+      );
     }
   }
 
@@ -52,15 +74,33 @@ export class AgentPermissionModeService extends Service implements IAgentPermiss
     return this.agentState.get(permissionModeKey);
   }
 
+  getMode(): PermissionMode {
+    return this.mode;
+  }
+
   setMode(mode: PermissionMode): void {
+    if (mode === 'review' && !this.flags.enabled(APPROVAL_REVIEW_FLAG)) {
+      throw new Error('Auto Review is unavailable. Enable experimental.approval_review or KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW first.');
+    }
+    if (this.headless?.active && mode !== 'review') {
+      this.headless?.stop('review_disabled');
+      this.headless?.check();
+    }
     const previousMode = this.mode;
     const changed = mode !== previousMode;
     if (!changed && this.agentState.get(permissionModeConfiguredKey)) return;
+    if (changed) this.revision += 1;
     void this.dispatcher.dispatch(
-      new PermissionSetMode({ agentId: this.scopeContext.agentId, mode }),
+      new PermissionSetMode({
+        agentId: this.scopeContext.agentId,
+        mode,
+      }),
     );
     void this.dispatcher.dispatch(
-      new AgentStatusUpdated({ agentId: this.scopeContext.agentId, permission: mode }),
+      new AgentStatusUpdated({
+        agentId: this.scopeContext.agentId,
+        permission: mode,
+      }),
     );
     if (changed) this._onDidChangeMode.fire({ mode, previousMode });
   }

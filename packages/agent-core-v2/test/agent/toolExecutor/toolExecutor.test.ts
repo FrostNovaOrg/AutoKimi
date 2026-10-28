@@ -1,3 +1,4 @@
+import { IHeadlessRun, HeadlessRunControl } from '#/app/headlessRun/control';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -99,6 +100,7 @@ beforeEach(() => {
   truncateForModel = async (input) => input.result;
   ix = createServices(disposables, {
     additionalServices: (reg) => {
+      reg.define(IHeadlessRun, HeadlessRunControl);
       registerStateServices(reg);
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);

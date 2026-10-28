@@ -1,7 +1,7 @@
 /**
- * v2 import-context construction — pure functions that replicate, byte for
- * byte, the user message the legacy v1 engine appended for an `importContext`
- * RPC, plus its validation and overflow rejection.
+ * v2 import-context construction — pure functions that preserve the legacy
+ * v1 text while marking imported content as untrusted reference data rather
+ * than current human authorization, plus validation and overflow rejection.
  *
  * The v2 engine has no import-context capability of its own (nothing under
  * `agent-core-v2` builds this message), but all of its primitives — the same
@@ -36,8 +36,8 @@ function escapeXmlAttr(input: string): string {
 }
 
 /**
- * The exact message v1 appends for an import, including its rejections:
- * blank content (`import_content_empty`) and blank source
+ * The imported message and its rejections: blank content
+ * (`import_content_empty`) and blank source
  * (`import_source_empty`) fail with v1's `request.invalid` shapes before any
  * token math runs.
  */
@@ -61,12 +61,14 @@ export function buildImportContextMessage(content: string, source: string): Cont
         text:
           `<system>The user has imported context from ${escapeXml(normalizedSource)}. ` +
           `${IMPORT_CONTEXT_GUIDANCE}</system>`,
+        meta: { source: 'context import' },
       },
       {
         type: 'text',
         text:
           `<imported_context source="${escapeXmlAttr(normalizedSource)}">\n` +
           `${content}\n</imported_context>`,
+        meta: { source: 'context import' },
       },
     ],
     toolCalls: [],

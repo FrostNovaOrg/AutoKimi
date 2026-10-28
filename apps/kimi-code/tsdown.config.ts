@@ -32,6 +32,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
+    neverBundle: [/^@anthropic-ai\/sandbox-runtime/],
   },
   outputOptions: {
     codeSplitting: false,

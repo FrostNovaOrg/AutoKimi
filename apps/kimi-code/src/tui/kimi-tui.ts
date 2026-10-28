@@ -69,6 +69,10 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
+import {
+  clearApprovalReviewDenials,
+  effectiveApprovalReview,
+} from './commands/review-state';
 import { CacheHintController } from './controllers/cache-hint-controller';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
@@ -272,11 +276,11 @@ type MutableCreateSessionOptions = {
 };
 
 function createInitialAppState(input: KimiTUIStartupInput): AppState {
-  const startupPermission: PermissionMode = input.cliOptions.auto
+  const startupPermission: PermissionMode = input.cliOptions.permissionMode ?? (input.cliOptions.auto
     ? 'auto'
     : input.cliOptions.yolo
       ? 'yolo'
-      : 'manual';
+      : 'manual');
   return {
     model: '',
     workDir: input.workDir,
@@ -356,6 +360,8 @@ export class KimiTUI {
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
   private surveySettingSubscription: Unsubscribe | undefined;
+  private experimentalFeaturesSubscription: Unsubscribe | undefined;
+  private experimentalFeaturesRevision = 0;
   private skillCommands: readonly KimiSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
   private pluginCommands: readonly KimiSlashCommand[] = [];
@@ -477,6 +483,7 @@ export class KimiTUI {
         continueLast: startupInput.cliOptions.continue,
         yolo: startupInput.cliOptions.yolo,
         auto: startupInput.cliOptions.auto,
+        permissionMode: startupInput.cliOptions.permissionMode,
         plan: startupInput.cliOptions.plan,
         model: startupInput.cliOptions.model,
         agentProfile: startupInput.agentProfile,
@@ -519,6 +526,27 @@ export class KimiTUI {
       if (change.domain !== 'disableFeedbackSurvey') return;
       this.setAppState({ disableFeedbackSurvey: change.value === true ? true : undefined });
     });
+    this.experimentalFeaturesSubscription =
+      this.harness.onConfigSectionChanged((change) => {
+        if (change.domain !== 'experimental') return;
+        const revision = ++this.experimentalFeaturesRevision;
+        void this.harness
+          .getExperimentalFeatures()
+          .then((features) => {
+            if (this.aborted || revision !== this.experimentalFeaturesRevision) return;
+            setExperimentalFeatures(features);
+            this.setAppState({
+              approvalReviewEnabled: effectiveApprovalReview(
+                this.session,
+                features.find((entry) => entry.id === 'approval_review'),
+                this.state.appState.permissionMode,
+              ),
+            });
+            this.refreshSlashCommandAutocomplete();
+            this.state.ui.requestRender();
+          })
+          .catch(() => undefined);
+      });
     this.streamingUI = new StreamingUIController(this);
     this.authFlow = new AuthFlowController(this);
     this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
@@ -1117,6 +1145,8 @@ export class KimiTUI {
     this.surveyController.dispose();
     this.surveySettingSubscription?.();
     this.surveySettingSubscription = undefined;
+    this.experimentalFeaturesSubscription?.();
+    this.experimentalFeaturesSubscription = undefined;
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -1468,6 +1498,30 @@ export class KimiTUI {
       this.sendQueuedMessage(session, item);
     }
     this.updateQueueDisplay();
+  }
+
+  async sendReviewApproval(session: Session, text: string): Promise<void> {
+    if (this.session !== session || this.state.appState.sessionId !== session.id ||
+        this.state.appState.model.trim().length === 0 || this.deferUserMessages ||
+        this.state.appState.streamingPhase !== 'idle' || this.state.appState.isCompacting ||
+        this.state.queuedMessages.length > 0 || this.state.queuedMessageDispatchPending) {
+      throw new Error('The session must be idle with a configured model before sending an approval.');
+    }
+    const entry: TranscriptEntry = { id: nextTranscriptId(), kind: 'user', turnId: undefined,
+      renderMode: 'plain', content: text };
+    this.appendTranscriptEntry(entry);
+    this.beginSessionRequest();
+    try {
+      await this.trackPendingEntries([entry], this.state.appState.goal?.status === 'active'
+        ? session.steer(text) : session.prompt(text));
+    } catch (error) {
+      if (this.session === session) {
+        this.removeTranscriptEntries([entry]);
+        this.setAppState({ streamingPhase: 'idle' });
+        this.resetLivePane();
+      }
+      throw error;
+    }
   }
 
   async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
@@ -2747,7 +2801,7 @@ export class KimiTUI {
       : {};
     // CLI --auto/--yolo/--plan win over config defaults; the flags are
     // re-applied by applyStartupPermissionAndPlanToAppState at startup.
-    if (!startup.auto && !startup.yolo) {
+    if (startup.permissionMode === undefined && !startup.auto && !startup.yolo) {
       // Reset to manual when the default was removed from config — a stale
       // elevated mode must not be passed to the first lazy-created session.
       patch.permissionMode = config.defaultPermissionMode ?? 'manual';
@@ -2910,9 +2964,19 @@ export class KimiTUI {
   }
 
   async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
-    const [status, goalResult] = await Promise.all([session.getStatus(), session.getGoal()]);
+    const [status, goalResult, features] = await Promise.all([
+      session.getStatus(),
+      session.getGoal(),
+      this.harness.getExperimentalFeatures(),
+    ]);
+    setExperimentalFeatures(features);
     this.setAppState({
       sessionId: session.id,
+      approvalReviewEnabled: effectiveApprovalReview(
+        session,
+        features.find((entry) => entry.id === 'approval_review'),
+        status.permission,
+      ),
       model: status.model ?? '',
       thinkingEffort: status.thinkingEffort,
       permissionMode: status.permission,
@@ -2936,7 +3000,9 @@ export class KimiTUI {
   // setPermission is idempotent and needs no such guard.
   private async applyStartupModesToResumedSession(session: Session): Promise<void> {
     const { startup } = this.options;
-    if (startup.auto) {
+    if (startup.permissionMode !== undefined) {
+      await session.setPermission(startup.permissionMode);
+    } else if (startup.auto) {
       await session.setPermission('auto');
     } else if (startup.yolo) {
       await session.setPermission('yolo');
@@ -2954,7 +3020,9 @@ export class KimiTUI {
   // values, so this guarantees the footer reflects the CLI intent.
   private applyStartupPermissionAndPlanToAppState(): void {
     const { startup } = this.options;
-    if (startup.auto) {
+    if (startup.permissionMode !== undefined) {
+      this.setAppState({ permissionMode: startup.permissionMode });
+    } else if (startup.auto) {
       this.setAppState({ permissionMode: 'auto' });
     } else if (startup.yolo) {
       this.setAppState({ permissionMode: 'yolo' });
@@ -4471,12 +4539,14 @@ export class KimiTUI {
 
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
   noteCompactionFinished(): void {
+    clearApprovalReviewDenials();
     this.cacheHint.resetCacheBreakBaseline();
     this.programStatus.finishCompaction();
   }
 
   /** /undo cut the context — the next step's cache drop is expected. */
   noteContextCut(): void {
+    clearApprovalReviewDenials();
     this.cacheHint.resetCacheBreakBaseline();
   }
 

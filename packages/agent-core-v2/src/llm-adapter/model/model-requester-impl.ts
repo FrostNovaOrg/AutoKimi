@@ -1,3 +1,4 @@
+import type { HeadlessRunControl } from '#/app/headlessRun/control';
 import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
@@ -67,6 +68,7 @@ export class ModelRequesterImpl implements ModelRequester {
   constructor(
     readonly model: Model,
     private readonly gateway: ModelLlmGateway,
+    private readonly headless?: HeadlessRunControl,
   ) {}
 
   private resolve(): ResolvedLlmModel {
@@ -88,12 +90,14 @@ export class ModelRequesterImpl implements ModelRequester {
     signal?: AbortSignal,
     params?: ModelRequestParams,
   ): AsyncIterable<ModelRequestEvent> {
+    this.headless?.beginRequest();
+    if (this.headless?.active) signal = AbortSignal.any([...(signal === undefined ? [] : [signal]), this.headless.signal]);
     const queue = new AsyncEventQueue<ModelRequestEvent>();
     void this.runRequest(input, signal, queue, params).then(
       () => queue.end(),
       (error) => queue.fail(error),
     );
-    return queue;
+    return this.headless?.active ? this.headless.observe(queue) : queue;
   }
 
   async uploadVideo(

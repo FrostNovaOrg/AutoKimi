@@ -46,11 +46,11 @@ export const ACP_MODES = [
 export const DEFAULT_MODE_ID = 'default' as const;
 
 /** The four wire-level mode ids understood by this host. */
-export type AcpModeId = 'default' | 'plan' | 'auto' | 'yolo';
+export type AcpModeId = 'default' | 'plan' | 'review' | 'auto' | 'yolo';
 
 /** Narrow an unknown wire string to {@link AcpModeId}. */
 export function isAcpModeId(value: unknown): value is AcpModeId {
-  return value === 'default' || value === 'plan' || value === 'auto' || value === 'yolo';
+  return value === 'review' || value === 'default' || value === 'plan' || value === 'auto' || value === 'yolo';
 }
 
 /**
@@ -75,6 +75,8 @@ export function acpModeToToggles(id: AcpModeId): AcpModeToggles {
       return { plan: false, permission: 'manual' };
     case 'plan':
       return { plan: true, permission: 'manual' };
+    case 'review':
+      return { plan: false, permission: 'review' };
     case 'auto':
       return { plan: false, permission: 'auto' };
     case 'yolo':
@@ -84,4 +86,13 @@ export function acpModeToToggles(id: AcpModeId): AcpModeToggles {
       throw new Error(`Unhandled AcpModeId: ${String(_exhaustive)}`);
     }
   }
+}
+
+export function availableAcpModes(reviewAvailable = false): SessionMode[] {
+  const modes: SessionMode[] = [...ACP_MODES];
+  if (reviewAvailable) modes.splice(2, 0, {
+    id: 'review', name: 'Auto Review',
+    description: 'Review pending tool approvals with a model; uncertain or failed reviews deny the action.',
+  });
+  return modes;
 }

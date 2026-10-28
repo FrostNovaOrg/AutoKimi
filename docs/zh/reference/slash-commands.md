@@ -21,6 +21,7 @@
 | `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
 | `/experiments` | `/experimental` | 打开实验功能面板 | 是 |
 | `/permission` | — | 选择权限模式 | 是 |
+| `/approval` | `/approve` | 管理自动审核状态和模型、查看拒绝记录、确认一次相同操作重试；见 [Auto Review](../guides/auto-review.md) | 否 |
 | `/editor` | — | 配置 `Ctrl-G` 调起的外部编辑器 | 是 |
 | `/theme` | — | 切换终端 UI 配色主题 | 是 |
 

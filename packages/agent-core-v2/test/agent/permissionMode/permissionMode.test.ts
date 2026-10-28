@@ -1,3 +1,4 @@
+import { IFlagService } from '#/app/flag/flag';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -25,6 +26,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubFlag } from '../../app/flag/stubs';
 
 import {
   registerTestAgentWire,
@@ -83,6 +85,7 @@ beforeEach(() => {
   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.stub(IAgentReminderService, injectorStub);
+  ix.stub(IFlagService, stubFlag(true));
   ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-home', bootstrapEnv));
   ix.set(IAgentStateService, new AgentStateService());
   ix.set(IAgentPermissionModeService, new SyncDescriptor(AgentPermissionModeService));
@@ -153,10 +156,22 @@ describe('AgentPermissionModeService (wire-backed)', () => {
         type: 'permission.set_mode',
         agentId: 'test-agent',
         mode: 'auto',
+        version: 2,
         time: expect.any(Number),
       },
     ]);
     expect('payload' in records[0]!).toBe(false);
+  });
+
+  it('persists review as its own mode and increments the authorization revision across a round trip', async () => {
+    svc.setMode('review');
+    const first = svc.revision;
+    svc.setMode('manual');
+    svc.setMode('review');
+    expect(svc.revision).toBeGreaterThan(first);
+    expect(svc.mode).toBe('review');
+    expect(await readRecords()).toContainEqual(expect.objectContaining({ type: 'permission.set_mode', mode: 'review', version: 2 }));
+    expect(await runRegisteredInjection()).toContain('Auto Review permission mode is active');
   });
 
   it('publishes agent.status.updated with the permission slice on setMode', () => {
@@ -177,6 +192,7 @@ describe('AgentPermissionModeService (wire-backed)', () => {
         type: 'permission.set_mode',
         agentId: 'test-agent',
         mode: 'manual',
+        version: 2,
         time: expect.any(Number),
       },
     ]);

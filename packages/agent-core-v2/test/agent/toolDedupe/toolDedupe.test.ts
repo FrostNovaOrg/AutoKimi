@@ -1,3 +1,4 @@
+import { IHeadlessRun, HeadlessRunControl } from '#/app/headlessRun/control';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -74,6 +75,7 @@ function createHarness(
   const events = options.executorEvents === true ? stubToolExecutorEvents() : undefined;
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
+      reg.define(IHeadlessRun, HeadlessRunControl);
       registerTestAgentWireServices(reg, 'wire/tool-dedupe');
       reg.defineInstance(ITelemetryService, telemetry);
       reg.defineInstance(IEventBus, noopEventBus);

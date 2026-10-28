@@ -1377,7 +1377,7 @@ export class AgentTranscriptProjector {
     contextTokens?: number;
     maxContextTokens?: number;
     contextUsage?: number;
-    permission?: 'manual' | 'yolo' | 'auto';
+    permission?: 'manual' | 'review' | 'yolo' | 'auto';
   }): TranscriptOperation[] {
     const ops: TranscriptOperation[] = [];
     const modes: {
@@ -1406,7 +1406,7 @@ export class AgentTranscriptProjector {
       contextTokens?: number;
       maxContextTokens?: number;
       contextUsage?: number;
-      permission?: 'manual' | 'yolo' | 'auto';
+      permission?: 'manual' | 'review' | 'yolo' | 'auto';
     } = {};
     let hasStatusSlice = false;
     if (event.model !== undefined) {

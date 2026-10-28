@@ -85,7 +85,7 @@ function makeHost(
     model?: string;
     hasSession?: boolean;
     streaming?: boolean;
-    permissionMode?: 'manual' | 'auto' | 'yolo';
+    permissionMode?: 'manual' | 'review' | 'auto' | 'yolo';
     fullscreen?: boolean;
   } = {},
 ) {
@@ -392,6 +392,18 @@ describe('handleGoalCommand', () => {
         expect(visibleWidth(row)).toBeLessThanOrEqual(width);
       }
     }
+  });
+
+  it('keeps Auto Review when the user confirms starting a goal', async () => {
+    const { host: reviewHost, session: s } = makeHost({ permissionMode: 'review' });
+    await handleGoalCommand(reviewHost, 'Ship feature X');
+    expect(s.createGoal).not.toHaveBeenCalled();
+    const picker = mountedPicker(reviewHost);
+    expect(stripAnsi(picker.render(80).join('\n'))).toContain('Keep Auto Review and start');
+    picker.handleInput(ENTER);
+    await vi.waitFor(() => expect(s.createGoal).toHaveBeenCalled());
+    expect(s.setPermission).not.toHaveBeenCalled();
+    expect(reviewHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
   it('defaults to Auto when confirming a Manual-mode goal start', async () => {

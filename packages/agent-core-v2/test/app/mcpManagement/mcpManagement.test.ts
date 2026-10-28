@@ -298,7 +298,7 @@ describe('McpManagementService', () => {
   ): Promise<void> {
     const provider = oauth.getProvider(name, url);
     await provider.ready;
-    await provider.saveTokens({ token_type: 'Bearer', ...tokens });
+    await provider.saveTokens({ token_type: 'Bearer', issuer: new URL(url).origin, ...tokens });
   }
 
   async function deliverAuthCallback(authorizationUrl: string): Promise<void> {

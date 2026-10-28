@@ -424,3 +424,9 @@ kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-
 - [配置文件](../configuration/config-files.md) — `default_model`、权限模式等启动参数的持久化配置
 - [Agent Skills](../customization/skills.md) — `--skills-dir` 加载的 Skill 文件格式
 - [Agent 与 subagent](../customization/agents.md) — 内置 subagent、自定义 Agent 文件与通过 `--agent` 选择 main agent
+
+## Auto Review 与带预算的任务
+
+使用 `--permission-mode manual|review|yolo|auto` 为本次调用显式选择权限，不能与 `--yolo` 或 `--auto` 同用。在 print 模式下，显式权限会贯穿本次运行和会话切换；未显式选择时保留原有默认行为。Auto Review 要求启用对应实验能力，见 [Auto Review](../guides/auto-review.md)。
+
+`kimi exec` 启动支持进度查询和累计预算的审核任务。`kimi runs` 提供 `schema`、`list`、`status`、`events` 和 `stop`。这些命令与原有 `-p` 输出协议分别使用，见[无头任务](./headless-runs.md)。

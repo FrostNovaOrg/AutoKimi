@@ -48,6 +48,7 @@ describe('acp-server config surface', () => {
     altThinking?: boolean;
     altSupportEfforts?: readonly string[];
     altDefaultEffort?: string;
+    review?: boolean;
   }): Promise<TestClient> {
     homeDir = await mkdtemp(join(tmpdir(), 'acp-config-'));
     if (opts?.fakeModel === true) {
@@ -60,6 +61,9 @@ describe('acp-server config surface', () => {
         altDefaultEffort: opts?.altDefaultEffort,
       });
     }
+    if (opts?.review === true) {
+      await writeFile(join(homeDir, 'config.toml'), '\n[experimental]\napproval_review = true\n', { flag: 'a' });
+    }
     client = await createTestClient({ homeDir });
     await client.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
     return client;
@@ -71,6 +75,22 @@ describe('acp-server config surface', () => {
       mcpServers: [],
     })) as NewSessionResult;
   }
+
+  it('advertises and selects Auto Review only with the capability enabled', async () => {
+    await boot({ review: true });
+    const { sessionId, modes } = await newSession();
+    expect(modes?.currentModeId).toBe('default');
+    expect(modes?.availableModes.map((mode) => mode.id)).toEqual(['default', 'plan', 'review', 'auto', 'yolo']);
+    const result = await client!.send('session/set_config_option', { sessionId, configId: 'mode', value: 'review' }) as { configOptions: ConfigOption[] };
+    expect(result.configOptions.find((option) => option.id === 'mode')?.currentValue).toBe('review');
+  }, 30_000);
+
+  it('rejects Auto Review when its capability is disabled', async () => {
+    await boot();
+    const { sessionId, modes } = await newSession();
+    expect(modes?.availableModes.some((mode) => mode.id === 'review')).toBe(false);
+    await expect(client!.send('session/set_mode', { sessionId, modeId: 'review' })).rejects.toThrow();
+  }, 30_000);
 
   it(
     'session/new advertises mode + model pickers (no thinking without a model)',

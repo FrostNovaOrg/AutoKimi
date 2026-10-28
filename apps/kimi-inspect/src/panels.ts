@@ -63,7 +63,7 @@ export interface ServicePanelDef {
   readonly actions?: readonly PanelAction[];
 }
 
-const setModeModes = ['manual', 'auto', 'yolo'];
+const setModeModes = ['manual', 'review', 'auto', 'yolo'];
 
 export const CORE_PANELS: readonly ServicePanelDef[] = [
   {

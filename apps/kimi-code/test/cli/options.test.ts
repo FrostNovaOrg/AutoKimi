@@ -37,6 +37,18 @@ function parse(argv: string[]): CLIOptions {
 }
 
 describe('CLI options parsing', () => {
+  it.each(['manual', 'review', 'yolo', 'auto'] as const)('accepts explicit %s permission in print mode', (mode) => {
+    const options = parse(['--permission-mode', mode, '-p', 'Inspect this project']);
+    expect(options.permissionMode).toBe(mode);
+    expect(validateOptions(options).uiMode).toBe('print');
+  });
+
+  it('keeps print mode defaults and rejects conflicting explicit modes', () => {
+    expect(parse(['-p', 'Inspect']).permissionMode).toBeUndefined();
+    expect(() => validateOptions(parse(['--permission-mode', 'review', '--auto']))).toThrow('Cannot combine');
+    expect(() => parse(['--permission-mode', 'invalid'])).toThrow();
+  });
+
   describe('defaults', () => {
     it('returns defaults when no arguments are given', () => {
       const opts = parse([]);
@@ -597,6 +609,8 @@ describe('CLI options parsing', () => {
         'migrate',
         'import-sessions',
         'upgrade',
+        'exec',
+        'runs',
       ]);
     });
 

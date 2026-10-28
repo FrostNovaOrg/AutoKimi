@@ -5,6 +5,7 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 
 import type { CLIOptions } from './options';
 import type { InstallIntent, UpdateChannel } from './update/types';
+import { registerHeadlessCommands } from './headless/commands';
 import { registerAcpCommand } from './sub/acp';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
@@ -37,7 +38,7 @@ export function createProgram(
   onUpdateDownload: UpdateDownloadHandler = () => {},
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
-    .description('The Starting Point for Next-Gen Agents')
+    .description('Kimi Code CLI — a terminal coding agent.')
     .version(version, '-V, --version')
     .allowUnknownOption(false)
     .enablePositionalOptions()
@@ -61,6 +62,7 @@ export function createProgram(
     .option('-c, --continue', 'Continue the previous session for the working directory.', false)
     .addOption(new Option('-C').hideHelp().default(false))
     .option('-y, --yolo', 'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.', false)
+    .addOption(new Option('--permission-mode <mode>', 'Select a permission mode for this invocation.').choices(['manual', 'review', 'yolo', 'auto']))
     .option('--auto', 'Start in Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.', false)
     .addOption(
       new Option(
@@ -192,6 +194,7 @@ export function createProgram(
       continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,
+      permissionMode: raw['permissionMode'] as CLIOptions['permissionMode'],
       plan: raw['plan'] as boolean,
       model: raw['model'] as string | undefined,
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
@@ -205,5 +208,6 @@ export function createProgram(
     onMain(opts);
   });
 
+  registerHeadlessCommands(program, version);
   return program;
 }

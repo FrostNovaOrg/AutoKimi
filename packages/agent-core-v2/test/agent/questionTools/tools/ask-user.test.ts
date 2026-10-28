@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import { reviewAuthorization } from '#/agent/approvalReview/classifier';
 import {
   AskUserQuestionInputSchema,
   IAskUserQuestionTool,
@@ -355,6 +356,22 @@ describe('AskUserQuestionTool', () => {
       answered: 1,
       trace_id: undefined,
     });
+    expect(
+      reviewAuthorization(
+        [],
+        interactions.findAll({
+          resolved: true,
+          tags: { sessionId: TEST_SESSION_ID, agentId: 'main' },
+        }),
+      ).questionAnswers,
+    ).toEqual([
+      {
+        interactionId: expect.stringMatching(/^question_/),
+        createdAt: expect.any(Number),
+        questions_untrusted: ['Which database?'],
+        answers: { 'Which database?': 'Postgres' },
+      },
+    ]);
   });
 
   it('passes empty headers and option descriptions through verbatim (v1 wire parity)', async () => {
@@ -411,6 +428,22 @@ describe('AskUserQuestionTool', () => {
       method: 'number_key',
       trace_id: undefined,
     });
+    expect(
+      reviewAuthorization(
+        [],
+        interactions.findAll({
+          resolved: true,
+          tags: { sessionId: TEST_SESSION_ID, agentId: 'main' },
+        }),
+      ).questionAnswers,
+    ).toEqual([
+      {
+        interactionId: expect.stringMatching(/^question_/),
+        createdAt: expect.any(Number),
+        questions_untrusted: ['Which database?'],
+        answers: { 'Which database?': 'SQLite' },
+      },
+    ]);
   });
 
   it('merges the request trace id into question telemetry', async () => {

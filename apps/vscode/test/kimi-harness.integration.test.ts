@@ -388,6 +388,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     } as unknown as HandlerContext);
 
     expect((commands as Array<{ name: string }>).map((command) => command.name)).toEqual([
+      "permission",
       "init",
       "compact",
       "clear",
@@ -415,6 +416,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     } as unknown as HandlerContext);
 
     expect((commands as Array<{ name: string }>).map((command) => command.name)).toEqual([
+      "permission",
       "init",
       "compact",
       "clear",

@@ -937,7 +937,7 @@ export interface AgentStateSnapshot {
       kind: 'goal_start';
       objective: string;
       completionCriterion?: string;
-      mode: 'manual' | 'yolo';
+      mode: 'manual' | 'review' | 'yolo';
     } | {
       kind: 'generic';
       summary: string;
@@ -1113,10 +1113,10 @@ export interface AgentStateSnapshot {
   // src/agent/media/mediaToolsRegistrar.ts
   'media.registeredKey': string | undefined;
   // src/agent/permissionMode/injection/permissionModeInjection.ts
-  'permissionMode.lastMode': 'manual' | 'yolo' | 'auto' | undefined;
+  'permissionMode.lastMode': 'manual' | 'review' | 'yolo' | 'auto' | undefined;
   // src/agent/permissionMode/permissionModeOps.ts
   // replayable · durable — folds: PermissionSetMode
-  'permissionMode': /* PermissionMode — packages/agent-core-v2/src/agent/permissionPolicy/types.ts */ 'manual' | 'yolo' | 'auto';
+  'permissionMode': /* PermissionMode — packages/agent-core-v2/src/agent/permissionPolicy/types.ts */ 'manual' | 'review' | 'yolo' | 'auto';
   // replayable · durable — folds: PermissionSetMode
   'permissionMode.configured': boolean;
   // src/agent/permissionRules/permissionRulesOps.ts

@@ -1,3 +1,4 @@
+import { IHeadlessRun, HeadlessRunControl } from '#/app/headlessRun/control';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
@@ -340,6 +341,7 @@ function registerSharedServices(
   loop: FakeLoopService,
   eventBus: RecordingEventBus,
 ): void {
+  reg.define(IHeadlessRun, HeadlessRunControl);
   registerStateServices(reg);
   reg.defineInstance(IEventBus, eventBus);
   reg.defineInstance(IAgentLoopService, loop);

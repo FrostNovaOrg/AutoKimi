@@ -1016,7 +1016,7 @@ function isGoalMutationTool(toolName: string): boolean {
 }
 
 function toGoalStartReviewPermissionMode(label: string | undefined): PermissionMode | undefined {
-  if (label === 'auto' || label === 'yolo' || label === 'manual') return label;
+  if (label === 'auto' || label === 'review' || label === 'yolo' || label === 'manual') return label;
   return undefined;
 }
 

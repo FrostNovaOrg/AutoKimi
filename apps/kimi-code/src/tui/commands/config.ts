@@ -1,3 +1,4 @@
+import { clearApprovalReviewDenials } from './review-state';
 import {
   ErrorCodes,
   PRIMARY_SUBAGENT_MODEL_CHOICE,
@@ -59,6 +60,7 @@ import {
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
+import { notePermissionStateChanged, permissionStateRevision } from './permission-state';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -904,29 +906,30 @@ export async function applyUpdatePreferenceChoice(
   host.showStatus(`Automatic updates ${autoInstall ? 'enabled' : 'disabled'}.`);
 }
 
-async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
-  if (mode === host.state.appState.permissionMode) {
-    host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
-    return;
-  }
-
+export async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
+  const session = host.session;
+  const previousMode = host.state.appState.permissionMode;
+  notePermissionStateChanged();
+  const revision = permissionStateRevision();
+  const current = (): boolean => host.session === session && permissionStateRevision() === revision;
   try {
-    if (host.session !== undefined) {
-      await host.session.setPermission(mode);
+    if (mode === 'review') {
+      const feature = (await host.harness.getExperimentalFeatures())
+        .find((entry) => entry.id === 'approval_review');
+      if (!current()) return;
+      if (feature?.enabled !== true) throw new Error('Auto Review is disabled by the approval_review capability setting.');
     }
-    // v2 session-less: the chosen mode is recorded in appState and passed to
-    // the lazy-created session.
+    if (!current()) return;
+    await session?.setPermission(mode);
   } catch (error) {
-    const msg = formatErrorMessage(error);
-    host.showError(`Failed to set permission mode: ${msg}`);
+    if (current()) host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
     return;
   }
-
-  host.setAppState({ permissionMode: mode });
+  if (!current()) return;
+  if (previousMode !== mode) clearApprovalReviewDenials(session?.id);
+  host.setAppState({ permissionMode: mode, approvalReviewEnabled: mode === 'review' });
   host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
-  if (mode !== 'manual') {
-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
-  }
+  if (mode !== 'manual') host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], mode === 'review' ? 'primary' : 'warning');
 }
 
 export function showSurveyPreferencePicker(host: SlashCommandHost): void {

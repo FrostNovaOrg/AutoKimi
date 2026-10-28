@@ -75,6 +75,7 @@ export interface AgentFacade {
   setModel(model: string): Promise<SetModelResult>;
   getThinking(): Promise<ThinkingLevel>;
   setThinking(level: string): Promise<void>;
+  getPermission(): Promise<PermissionMode>;
   setPermission(mode: PermissionMode): Promise<void>;
   getUsage(): Promise<UsageStatus>;
   getContext(): Promise<AgentContextData>;
@@ -128,6 +129,7 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
       call(scope, 'agentProfileService', 'getEffectiveThinkingLevel', []) as Promise<ThinkingLevel>,
     setThinking: (level) =>
       call(scope, 'agentProfileService', 'setThinking', [level]) as Promise<void>,
+    getPermission: () => call(scope, 'agentPermissionModeService', 'getMode', []) as Promise<PermissionMode>,
     setPermission: (mode) =>
       call(scope, 'agentPermissionModeService', 'setModeAndBroadcast', [mode]) as Promise<void>,
     getUsage: () => call(scope, 'agentUsageService', 'status', []) as Promise<UsageStatus>,

@@ -44,6 +44,10 @@ import {
   OAUTH_LOGIN_REQUIRED_CODE,
   OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/kimi-tui';
+import {
+  clearApprovalReviewDenials,
+  recordApprovalReviewDenial,
+} from '../commands/review-state';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   argsRecord,
@@ -208,6 +212,7 @@ export class SessionEventHandler {
     this.queuedGoalPromotionInFlight = false;
     this.clearQueuedGoalPromotionTimer();
     this.clearStepRetryAttemptTimer();
+    clearApprovalReviewDenials();
     this.stopAllMcpServerStatusSpinners();
   }
 
@@ -699,10 +704,21 @@ export class SessionEventHandler {
     if (this.host.streamingUI.markWaitForRunning(event.toolCallId)) {
       this.host.steerQueuedMessagesIntoRunningTurn();
     }
+    if (event.update.customKind === 'approval.review') {
+      recordApprovalReviewDenial({
+        sessionId: this.host.state.appState.sessionId,
+        toolCallId: event.toolCallId,
+        customKind: event.update.customKind,
+        customData: event.update.customData,
+      });
+    }
     const text = event.update.text;
     if (text === undefined || text.length === 0) return;
     const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
-    if (tc === undefined) return;
+    if (tc === undefined) {
+      if (event.update.customKind === 'approval.review') this.host.showStatus(text, 'textMuted');
+      return;
+    }
     if (event.update.kind === 'status') {
       tc.appendProgress(text, { replace: event.update.replace === true });
       return;
@@ -765,7 +781,11 @@ export class SessionEventHandler {
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
     if (event.permission !== undefined) {
+      if (event.permission !== this.host.state.appState.permissionMode) {
+        clearApprovalReviewDenials(this.host.state.appState.sessionId);
+      }
       patch.permissionMode = event.permission;
+      patch.approvalReviewEnabled = event.permission === 'review';
     }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;

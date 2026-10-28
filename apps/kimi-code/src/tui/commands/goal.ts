@@ -393,6 +393,7 @@ export async function createGoal(
 
   if (
     host.state.appState.permissionMode === 'manual' ||
+    host.state.appState.permissionMode === 'review' ||
     host.state.appState.permissionMode === 'yolo'
   ) {
     showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective, options);
@@ -416,7 +417,7 @@ function showGoalStartPermissionPrompt(
   syncGoalStartPrompt(host, true);
   host.mountEditorReplacement(
     new GoalStartPermissionPromptComponent({
-      mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
+      mode: host.state.appState.permissionMode === 'review' ? 'review' : host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
       onSelect: (choice) => {
         if (choice === 'cancel') {
           cancelStart();
@@ -448,7 +449,7 @@ async function startGoalWithPermission(
 ): Promise<void> {
   const previousMode = host.state.appState.permissionMode;
   const switched =
-    choice !== previousMode && (choice === 'auto' || choice === 'yolo');
+    choice !== previousMode && (choice === 'auto' || choice === 'yolo' || choice === 'review' || choice === 'manual');
   if (switched) {
     if (!(await setPermissionForGoal(host, choice))) return;
   }

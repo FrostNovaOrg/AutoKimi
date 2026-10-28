@@ -4,11 +4,12 @@ import {
   type StartPermissionPromptOptions,
 } from './start-permission-prompt';
 
-export type GoalStartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
+export type GoalStartPermissionChoice =
+  'review' | 'auto' | 'yolo' | 'manual' | 'cancel';
 
 export interface GoalStartPermissionPromptOptions
   extends Pick<StartPermissionPromptOptions, 'layout'> {
-  readonly mode: 'manual' | 'yolo';
+  readonly mode: 'manual' | 'review' | 'yolo';
   readonly onSelect: (choice: GoalStartPermissionChoice) => void;
   readonly onCancel: () => void;
 }
@@ -59,13 +60,25 @@ export const GOAL_START_YOLO_OPTIONS: readonly StartPermissionOption[] = [
   },
 ];
 
-export function goalStartOptions(mode: 'manual' | 'yolo'): readonly StartPermissionOption[] {
+export function goalStartOptions(
+  mode: 'manual' | 'review' | 'yolo',
+): readonly StartPermissionOption[] {
+  if (mode === 'review')
+    return [
+      {
+        value: 'review',
+        label: 'Keep Auto Review and start',
+        description:
+          'Review tool actions with the configured model. Questions, plans and denied actions can still stop the goal.',
+      },
+      {
+        value: 'cancel',
+        label: 'Do not start',
+        description: 'Return to the input box with your goal command.',
+      },
+    ];
   return mode === 'yolo' ? GOAL_START_YOLO_OPTIONS : GOAL_START_MANUAL_OPTIONS;
 }
-
-const MANUAL_OPTIONS = GOAL_START_MANUAL_OPTIONS;
-
-const YOLO_OPTIONS = GOAL_START_YOLO_OPTIONS;
 
 const MANUAL_NOTICE_LINES = [
   'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions, and is not suitable for unattended goal work.',
@@ -81,11 +94,20 @@ export class GoalStartPermissionPromptComponent extends StartPermissionPromptCom
   constructor(opts: GoalStartPermissionPromptOptions) {
     super({
       title:
-        opts.mode === 'yolo'
-          ? 'Start a goal in Ask When Needed mode?'
-          : 'Start a goal with approvals on?',
-      noticeLines: opts.mode === 'yolo' ? YOLO_NOTICE_LINES : MANUAL_NOTICE_LINES,
-      options: opts.mode === 'yolo' ? YOLO_OPTIONS : MANUAL_OPTIONS,
+        opts.mode === 'review'
+          ? 'Start a goal in Auto Review mode?'
+          : opts.mode === 'yolo'
+            ? 'Start a goal in Ask When Needed mode?'
+            : 'Start a goal with approvals on?',
+      noticeLines:
+        opts.mode === 'review'
+          ? [
+              'Auto Review checks tool approvals. Human questions and plan confirmations still require your input.',
+            ]
+          : opts.mode === 'yolo'
+            ? YOLO_NOTICE_LINES
+            : MANUAL_NOTICE_LINES,
+      options: goalStartOptions(opts.mode),
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
       layout: opts.layout,

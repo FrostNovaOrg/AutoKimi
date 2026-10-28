@@ -54,6 +54,7 @@ const config = withMermaid(defineConfig({
                 { text: '常见使用案例', link: '/zh/guides/use-cases' },
                 { text: 'Tower 多 Agent 协作', link: '/zh/guides/tower' },
                 { text: '交互与输入', link: '/zh/guides/interaction' },
+                { text: '自动审核', link: '/zh/guides/auto-review' },
                 { text: '会话与上下文', link: '/zh/guides/sessions' },
                 { text: '在 IDE 中使用', link: '/zh/guides/ides' },
                 { text: '在网页中使用', link: '/zh/guides/web' },
@@ -91,6 +92,7 @@ const config = withMermaid(defineConfig({
               text: '参考手册',
               items: [
                 { text: 'kimi 命令', link: '/zh/reference/kimi-command' },
+                { text: '无头任务', link: '/zh/reference/headless-runs' },
                 { text: 'kimi acp 子命令', link: '/zh/reference/kimi-acp' },
                 { text: '服务 API', link: '/zh/reference/server-api' },
                 { text: '内置工具', link: '/zh/reference/tools' },
@@ -134,6 +136,7 @@ const config = withMermaid(defineConfig({
                 { text: 'Common Use Cases', link: '/en/guides/use-cases' },
                 { text: 'Tower multi-agent collaboration', link: '/en/guides/tower' },
                 { text: 'Interaction and Input', link: '/en/guides/interaction' },
+                { text: 'Auto Review', link: '/en/guides/auto-review' },
                 { text: 'Sessions and Context', link: '/en/guides/sessions' },
                 { text: 'Using in IDEs', link: '/en/guides/ides' },
                 { text: 'Using Kimi Code in the browser', link: '/en/guides/web' },
@@ -171,6 +174,7 @@ const config = withMermaid(defineConfig({
               text: 'Reference',
               items: [
                 { text: 'kimi Command', link: '/en/reference/kimi-command' },
+                { text: 'Headless runs', link: '/en/reference/headless-runs' },
                 { text: 'kimi acp Subcommand', link: '/en/reference/kimi-acp' },
                 { text: 'Server API', link: '/en/reference/server-api' },
                 { text: 'Built-in Tools', link: '/en/reference/tools' },

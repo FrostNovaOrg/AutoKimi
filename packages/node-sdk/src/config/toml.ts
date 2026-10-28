@@ -11,6 +11,7 @@ import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
 import { applySecondaryModelConfig, stripSecondaryModelConfig } from './secondary-model';
 import {
   KimiConfigSchema,
+  RuntimeKimiConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
   type BackgroundConfig,
@@ -182,9 +183,9 @@ interface SalvageResult {
 function salvageConfigData(transformed: Record<string, unknown>): SalvageResult {
   const dropped: string[] = [];
   for (;;) {
-    const result = KimiConfigSchema.safeParse(transformed);
+    const result = RuntimeKimiConfigSchema.safeParse(transformed);
     if (result.success) {
-      return { config: result.data, dropped };
+      return { config: result.data as KimiConfig, dropped };
     }
     let deletedAny = false;
     for (const issue of result.error.issues) {
@@ -343,6 +344,13 @@ function transformModelData(data: Record<string, unknown>): Record<string, unkno
 function transformPermissionData(data: Record<string, unknown>): Record<string, unknown> {
   const raw = transformPlainObject(data);
   const out: Record<string, unknown> = {};
+  if (raw['review'] !== undefined) {
+    out['review'] = isPlainObject(raw['review'])
+      ? transformPlainObject(raw['review']) : raw['review'];
+  }
+  if (raw['dangerousCommandGuard'] !== undefined) {
+    out['dangerousCommandGuard'] = raw['dangerousCommandGuard'];
+  }
 
   const rules: unknown[] = [];
   appendPermissionRules(rules, raw['rules']);
@@ -450,6 +458,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   for (const key of scalarFields) {
     setDefined(out, camelToSnake(key), config[key]);
   }
+
 
   setRecordSection(out, 'providers', config.providers, providerToToml);
   setRecordSection(out, 'models', config.models, modelToToml);
@@ -580,6 +589,15 @@ function permissionToToml(
   delete out['deny'];
   delete out['allow'];
   delete out['ask'];
+
+  if (permission.review !== undefined) {
+    out['review'] = Object.fromEntries(
+      Object.entries(permission.review).map(([key, value]) => [camelToSnake(key), value]),
+    );
+  } else {
+    delete out['review'];
+  }
+  setDefined(out, 'dangerous_command_guard', permission.dangerousCommandGuard);
 
   if (permission.rules !== undefined) {
     out['rules'] = permission.rules.map(permissionRuleToToml);

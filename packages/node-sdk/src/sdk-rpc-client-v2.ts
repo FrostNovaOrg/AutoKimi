@@ -1,3 +1,5 @@
+import { waitForShellSandboxShutdown } from '@moonshot-ai/agent-core-v2/app/shellSandbox/sandbox';
+import { HeadlessRunControl, IHeadlessRun } from '@moonshot-ai/agent-core-v2/app/headlessRun/control';
 /**
  * v2 wiring MVP — an `SDKRpcClientBase` backed by the agent-core-v2 engine
  * (DI × Scope) instead of the v1 `KimiCore` RPC pair. The engine is
@@ -353,6 +355,7 @@ import {
 import { SessionEventWiring } from '#/v2/session-wiring';
 
 export interface SDKRpcClientV2Options {
+  readonly headless?: import('@moonshot-ai/agent-core-v2/app/headlessRun/control').HeadlessOptions;
   readonly homeDir?: string;
   readonly configPath?: string;
   readonly identity?: KimiHostIdentity;
@@ -454,6 +457,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     });
 
     const identity = assertKimiHostIdentity(this.identity);
+    const headless = new HeadlessRunControl(options.headless === undefined ? undefined : { ...options.headless, protectedDirs: [...(options.headless.protectedDirs ?? []), this.homeDir] });
     const { app } = bootstrap(
       {
         homeDir: this.homeDir,
@@ -470,7 +474,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           uiCapabilities: options.uiCapabilities,
         },
       },
-      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
+      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env })), [IHeadlessRun, headless]],
     );
     this.app = app;
     this.klient = createKlient({ scope: app });
@@ -535,6 +539,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await this.app.accessor.get(IMcpOAuthService).shutdown();
     const appendLogStore = this.app.accessor.get(IAppendLogStore);
     this.app.dispose();
+    await waitForShellSandboxShutdown();
     await appendLogStore.drainRetirements();
     await drainSessionIndexMirror();
     await drainQueryStoreDisposals();
@@ -791,7 +796,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await this.configReady;
     for (const [domain, domainPatch] of Object.entries(patch)) {
       if (domainPatch === undefined) continue;
-      await this.klient.global.config.set({ domain, patch: domainPatch });
+      await this.klient.global.config.set({
+        domain,
+        patch: domainPatch,
+      });
     }
     return this.getConfig();
   }
@@ -1579,7 +1587,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       const handle = await resumeSessionById(this.engineAccessor, input.id, {
         additionalDirs: input.additionalDirs,
       });
-      if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
+      if (handle === undefined) {
+        throw SDKRpcClientV2.sessionNotFound(input.id);
+      }
       this.wireSession(handle);
       return this.resumedSessionSummary(handle, {
         includeSubagents: input.includeSubagents,

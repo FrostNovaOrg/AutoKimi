@@ -28,6 +28,6 @@ export default defineConfig({
   },
   deps: {
     alwaysBundle: [/^@moonshot-ai\//],
-    neverBundle: [],
+    neverBundle: [/^@anthropic-ai\/sandbox-runtime/],
   },
 });

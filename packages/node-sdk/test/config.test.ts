@@ -24,6 +24,22 @@ async function makeTempDir(): Promise<string> {
 }
 
 describe('SDK config TOML', () => {
+  it('preserves reviewer settings and the dangerous-command guard across TOML round trips', () => {
+    const config = parseConfigString(`
+[permission]
+dangerous_command_guard = true
+[permission.review]
+model = "provider/reviewer"
+timeout_ms = 45000
+max_context_chars = 16000
+two_stage = false
+policy = "Keep production changes manual."
+[experimental]
+approval_review = true
+`);
+    expect(config.permission?.review).toEqual({ model: 'provider/reviewer', timeoutMs: 45000, maxContextChars: 16000, twoStage: false, shellSandbox: true, shellAllowedDomains: [], policy: 'Keep production changes manual.' });
+    expect(configToTomlData(config)).toMatchObject({ permission: { dangerous_command_guard: true, review: { model: 'provider/reviewer', timeout_ms: 45000, max_context_chars: 16000, two_stage: false } }, experimental: { approval_review: true } });
+  });
   it('resolves config paths through the config RPC wrapper', async () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();

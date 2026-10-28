@@ -1,3 +1,4 @@
+import { IHeadlessRun } from '#/app/headlessRun/control';
 import { join } from 'pathe';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -18,7 +19,7 @@ import {
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ISessionEventBus } from '#/app/event/eventBus';
-import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+import { DefaultPermissionModeSchema, DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { profileKey } from '#/agent/profile/profileOps';
@@ -131,6 +132,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IBlobStore private readonly blobStore: IBlobStore,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @ILogService private readonly logger: ILogService,
+    @IHeadlessRun private readonly headless?: IHeadlessRun,
   ) {
     super();
     setRootActorErrorReporter((err) => {
@@ -247,6 +249,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     self: AgentMachineSelf,
     signal: AbortSignal,
   ): Promise<ScopeFactoryOutput> {
+    const existing = this.sessionMetadata.snapshot?.()?.agents?.[agentId] !== undefined;
     const agentScope = this.ctx.scope(`agents/${agentId}`);
     const agentHomedir = join(this.bootstrap.homeDir, agentScope);
     const generation = ++this.nextLifecycleGeneration;
@@ -346,11 +349,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.onDidCreateEmitter.fire(agent);
       didCreate = true;
       this.onDidCreateScopeEmitter.fire({ context: agent, handle, meta });
+      handle.accessor.get(IAgentPermissionModeService);
       stage = 'restore';
       await handle.accessor.get(IEventDispatcher).restore();
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       stage = 'bootstrap';
-      await this.bindBootstrap(handle, opts);
+      await this.bindBootstrap(handle, opts, existing);
       stage = 'toolActivation';
       await handle.accessor.get(IAgentToolActivationService).activate();
       stage = 'attach';
@@ -398,17 +402,25 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   private async bindBootstrap(
     handle: IAgentScopeHandle,
     opts: CreateAgentOptions,
+    existing: boolean,
   ): Promise<void> {
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
-    const permissionMode = this.config.get<PermissionMode>(DEFAULT_PERMISSION_MODE_SECTION);
-    const hasRestoredPermissionMode = handle.accessor
-      .get(IAgentStateService)
-      .get(permissionModeConfiguredKey);
-    if (permissionMode !== undefined && !hasRestoredPermissionMode) {
-      handle.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
+    const state = handle.accessor.get(IAgentStateService);
+    const mode = handle.accessor.get(IAgentPermissionModeService);
+    if (this.headless?.active) {
+      mode.setMode('review');
+      return;
     }
+    if (state.get(permissionModeConfiguredKey)) return;
+    const configured = this.config.get<PermissionMode | undefined>(DEFAULT_PERMISSION_MODE_SECTION);
+    const raw = this.config.inspect?.(DEFAULT_PERMISSION_MODE_SECTION)?.userValue;
+    if (configured === undefined && raw !== undefined && !DefaultPermissionModeSchema.safeParse(raw).success) {
+      throw new Error2(ErrorCodes.CONFIG_INVALID,
+        'Invalid default_permission_mode; choose manual, review, yolo, or auto before starting a task.');
+    }
+    mode.setMode(existing && configured === 'review' ? mode.mode : configured ?? mode.mode);
   }
 
   async fork(sourceContext: AgentContext, opts?: ForkAgentOptions): Promise<AgentContext> {
@@ -436,6 +448,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     });
     const child = this.requireManaged(childContext).handle;
 
+    child.accessor.get(IAgentPermissionModeService).setMode(
+      source.accessor.get(IAgentPermissionModeService).mode,
+    );
     const childProfile = child.accessor.get(IAgentProfileService);
     if (override?.profile !== undefined) {
       await childProfile.bind({
@@ -477,7 +492,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     for (const managed of this.roster.values()) {
       if (managed.closing || !managed.active) continue;
       const handle = managed.handle;
-      if (hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
+      if (mode !== 'review' && handle.accessor.get(IAgentPermissionModeService).mode !== 'review' && hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
         continue;
       }
       handle.accessor.get(IAgentPermissionModeService).setMode(mode);

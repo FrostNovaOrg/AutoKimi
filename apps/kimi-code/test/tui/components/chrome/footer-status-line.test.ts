@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
+import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
 import {
   runStatusLineCommand,
   STATUS_LINE_MAX_CAPTURE_BYTES,
@@ -62,6 +63,17 @@ function plain(text: string): string {
 }
 
 describe('FooterComponent status_line items', () => {
+  it('shows Auto Review only when the native permission mode is selected', () => {
+    setExperimentalFeatures([{ id: 'approval_review', enabled: true }]);
+    try {
+      const active = new FooterComponent({ ...baseState, permissionMode: 'review' }).render(200).map(plain).join('\n');
+      expect(active).toContain('Auto Review');
+      for (const mode of ['manual', 'yolo', 'auto'] as const) {
+        const inactive = new FooterComponent({ ...baseState, permissionMode: mode, approvalReviewEnabled: true }).render(200).map(plain).join('\n');
+        expect(inactive).not.toContain('Auto Review');
+      }
+    } finally { setExperimentalFeatures([]); }
+  });
   it('renders only the chosen slots in the given order', () => {
     const state: AppState = {
       ...baseState,

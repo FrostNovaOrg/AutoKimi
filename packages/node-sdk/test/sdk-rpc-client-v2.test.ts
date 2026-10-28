@@ -214,10 +214,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       await client.engineAccessor.get(IAgentIdentity).resolved();
       await oauth
         .getProvider('oauth-authorized', authorizedUrl)
-        .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+        .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer', issuer: 'https://authorized.example.test' });
       await oauth
         .getProvider('sse', implicitOAuthUrl)
-        .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
+        .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer', issuer: 'https://implicit-oauth.example.test' });
 
       await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
@@ -232,7 +232,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
 
       await oauth
         .getProvider('oauth-required', requiredUrl)
-        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
+        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer', issuer: 'https://required.example.test' });
       await oauth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
 
       await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([

@@ -494,8 +494,7 @@ interface PermissionRecordApprovalResultPayload {
 interface PermissionSetModePayload {
   _name: 'permission.set_mode';
   agentId: string;
-  /** PermissionMode */
-  mode: 'manual' | 'yolo' | 'auto';
+  mode: 'manual' | 'review' | 'yolo' | 'auto';
 }
 
 /**

@@ -84,6 +84,19 @@ export function defineKlientConformance(
       expect(await workspaces.get(created.id)).toBeUndefined();
     });
 
+    it('queries and changes permission through the same transport contract', async () => {
+      const created = await target.klient.global.sessions.create({ workDir: process.cwd() });
+      const agent = target.klient.session(created.id).agent('main');
+      try {
+        for (const mode of ['manual', 'yolo', 'auto'] as const) {
+          await agent.setPermission(mode);
+          expect(await agent.getPermission()).toBe(mode);
+        }
+      } finally {
+        await target.klient.session(created.id).close();
+      }
+    });
+
     it('sessions index responds with a page shape', async () => {
       const page = await target.klient.global.sessions.list({});
       expect(Array.isArray(page.items)).toBe(true);

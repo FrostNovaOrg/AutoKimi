@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -218,6 +218,7 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
       assetKey,
       relativePath,
       sha256: sha256(sourceBytes),
+      mode: ((await stat(file)).mode & 0o111) !== 0 ? 0o755 : undefined,
     });
     assets[assetKey] = file;
   }

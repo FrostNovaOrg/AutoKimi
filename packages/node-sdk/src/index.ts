@@ -133,3 +133,4 @@ export type {
 
 export * from '#/events';
 export type * from '#/types';
+export { setShellSandboxRuntimeRootResolver } from '@moonshot-ai/agent-core-v2/app/shellSandbox/sandbox';

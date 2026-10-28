@@ -15,7 +15,7 @@ import { isSettlingClick } from '#/tui/utils/terminal-focus';
 
 import { paintHoverRow } from './hover-row';
 
-export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
+export type StartPermissionChoice = 'review' | 'auto' | 'yolo' | 'manual' | 'cancel';
 
 export interface StartPermissionOption<TChoice extends StartPermissionChoice = StartPermissionChoice> {
   readonly value: TChoice;
@@ -181,9 +181,9 @@ function styleLabel(label: string, selected: boolean): string {
 
 function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
   return text
-    .split(/(\b(?:Always Ask|Ask When Needed|Never Ask)\b)/g)
+    .split(/(\b(?:Always Ask|Auto Review|Ask When Needed|Never Ask)\b)/g)
     .map((part) => {
-      if (part === 'Always Ask' || part === 'Ask When Needed' || part === 'Never Ask') return currentTheme.boldFg('textStrong', part);
+      if (part === 'Always Ask' || part === 'Auto Review' || part === 'Ask When Needed' || part === 'Never Ask') return currentTheme.boldFg('textStrong', part);
       return currentTheme.fg(baseToken, part);
     })
     .join('');

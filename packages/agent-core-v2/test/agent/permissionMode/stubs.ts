@@ -10,6 +10,8 @@ export function stubPermissionModeService(
 ): IAgentPermissionModeService {
   return {
     _serviceBrand: undefined,
+    revision: 0,
+    getMode: () => mode(),
     get mode() {
       return mode();
     },

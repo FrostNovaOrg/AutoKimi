@@ -528,6 +528,8 @@ api_key = "sk-xxx"
 
 ## `permission`
 
+实验性配置表 `[permission.review]` 控制审核模型、超时、证据预算、两阶段审核和 Shell 隔离。顶层 `default_permission_mode` 新增支持 `"review"`，不会改变原有默认值。启用方式和完整示例见 [Auto Review](../guides/auto-review.md)。
+
 `permission` 设置会话启动时自动加载的权限规则，控制 Agent 调用工具时是否需要用户确认。规则用 `[[permission.rules]]` 数组表写出，按顺序匹配，第一条命中即生效。
 
 也可以在 `[permission]` 下设置 `dangerous_command_guard = false` 完全关闭所有内置 guard 确认策略：危险命令、敏感文件（如 `.env`、`id_rsa`）访问、git 控制路径访问在 "Always Ask" 和 "Ask When Needed" 模式下不再触发审批（"Never Ask" 模式本就不启用这些策略），默认 `true`。环境变量 `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false` 会覆盖文件设置。全部内置 guard 关闭后，"Ask When Needed" 模式下只有你自己配置的 `ask` 规则仍会要求确认；"Always Ask" 模式下未被自动放行的工具照旧逐个询问。`Read`/`Write`/`Edit` 对秘密文件的硬阻断保持不变。此开关只适用于已经在 Agent 之外统一命令限权的环境。

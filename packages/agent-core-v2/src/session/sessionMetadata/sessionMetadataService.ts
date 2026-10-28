@@ -74,6 +74,10 @@ export class SessionMetadata extends Service implements ISessionMetadata {
     this.ready = this.load();
   }
 
+  snapshot(): SessionMeta | undefined {
+    return this.states.get(sessionMetadataDataKey);
+  }
+
   private get data(): SessionMeta {
     return this.states.get(sessionMetadataDataKey) as SessionMeta;
   }

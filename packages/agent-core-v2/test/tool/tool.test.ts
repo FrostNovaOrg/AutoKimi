@@ -3573,6 +3573,7 @@ describe('Agent tool execution contract', () => {
 
   it('returns the spawned agent id when a foreground subagent times out', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const scheduledTimeouts = vi.spyOn(globalThis, 'setTimeout');
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: (_agentId, _request, options) =>
@@ -3595,7 +3596,12 @@ describe('Agent tool execution contract', () => {
     await vi.waitFor(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
-    await vi.advanceTimersByTimeAsync(DEFAULT_SUBAGENT_TIMEOUT_MS);
+    const timeoutHandler = scheduledTimeouts.mock.calls.find(
+      ([, delay]) => delay === DEFAULT_SUBAGENT_TIMEOUT_MS,
+    )?.[0];
+    scheduledTimeouts.mockRestore();
+    expect(timeoutHandler).toBeDefined();
+    timeoutHandler!();
     const result = await resultPromise;
 
     expect(result).toMatchObject({ isError: true });

@@ -324,7 +324,7 @@ export const agentStatusMetaSchema = z.object({
   contextTokens: z.number().optional(),
   maxContextTokens: z.number().optional(),
   contextUsage: z.number().optional(),
-  permission: z.enum(['manual', 'yolo', 'auto']).optional(),
+  permission: z.enum(['manual', 'review', 'yolo', 'auto']).optional(),
   phase: agentPhaseMetaSchema.optional(),
 });
 

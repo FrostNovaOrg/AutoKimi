@@ -21,6 +21,36 @@ import { mcpOAuthStoreKey, type McpOAuthStore } from '#/mcpCore/oauth/store';
 
 import { createMemoryMcpOAuthStore, ManualMcpOAuthScheduler } from '../stubs';
 
+const fixtureIssuers = new WeakMap<McpOAuthClientProvider, string>();
+function saveBoundTokens(
+  provider: McpOAuthClientProvider,
+  tokens: Parameters<McpOAuthClientProvider['saveTokens']>[0],
+): Promise<void> {
+  return provider.saveTokens({
+    ...tokens,
+    issuer: tokens.issuer ?? fixtureIssuers.get(provider) ?? 'https://auth.example.test',
+  });
+}
+function saveBoundClient(
+  provider: McpOAuthClientProvider,
+  client: Parameters<McpOAuthClientProvider['saveClientInformation']>[0],
+): Promise<void> {
+  return provider.saveClientInformation({
+    ...client,
+    issuer: client.issuer ?? fixtureIssuers.get(provider) ?? 'https://auth.example.test',
+  });
+}
+function saveBoundDiscovery(
+  provider: McpOAuthClientProvider,
+  state: Parameters<McpOAuthClientProvider['saveDiscoveryState']>[0],
+): Promise<void> {
+  fixtureIssuers.set(provider, String(state.authorizationServerUrl));
+  return provider.saveDiscoveryState({
+    ...state,
+    resourceMetadata: state.resourceMetadata === undefined ? undefined : { ...state.resourceMetadata, resource: provider.serverUrl },
+  });
+}
+
 const SERVER_NAME = 'notion';
 const SERVER_URL = 'https://mcp.example.test/mcp';
 
@@ -87,7 +117,9 @@ async function startFakeAuthServer(
       if (req.url === '/register') {
         counts.register += 1;
         const metadata = JSON.parse(body) as Record<string, unknown>;
-        registerScopes.push(typeof metadata['scope'] === 'string' ? (metadata['scope'] as string) : undefined);
+        registerScopes.push(
+          typeof metadata['scope'] === 'string' ? (metadata['scope'] as string) : undefined,
+        );
         res.writeHead(201, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ...metadata, client_id: `test-client-${counts.register}` }));
         return;
@@ -129,7 +161,10 @@ async function startFakeAuthServer(
   return { url: `http://127.0.0.1:${port}`, counts, registerScopes };
 }
 
-async function startHangingServer(): Promise<{ readonly url: string; readonly counts: { requests: number } }> {
+async function startHangingServer(): Promise<{
+  readonly url: string;
+  readonly counts: { requests: number };
+}> {
   const counts = { requests: 0 };
   const httpServer: HttpServer = createHttpServer(() => {
     counts.requests += 1;
@@ -238,14 +273,11 @@ function authServerState(
         token_endpoint_auth_methods_supported: ['none'],
         scopes_supported: options.scopesSupported,
       },
-      resourceMetadata:
-        options.resourceScopesSupported === undefined
-          ? undefined
-          : {
-              resource: SERVER_URL,
-              authorization_servers: [authServerUrl],
-              scopes_supported: options.resourceScopesSupported,
-            },
+      resourceMetadata: {
+        resource: SERVER_URL,
+        authorization_servers: [authServerUrl],
+        scopes_supported: options.resourceScopesSupported,
+      },
     },
     client: {
       client_id: 'cached-client',
@@ -309,9 +341,9 @@ async function blockedRefreshFixture(options?: {
   const authServer = await startFakeAuthServer({ refreshExpiresIn: 60 });
   const provider = await readyProvider(fixture);
   const state = authServerState(authServer.url);
-  await provider.saveDiscoveryState(state.discovery);
-  await provider.saveClientInformation(state.client);
-  await provider.saveTokens({
+  await saveBoundDiscovery(provider, state.discovery);
+  await saveBoundClient(provider, state.client);
+  await saveBoundTokens(provider, {
     access_token: 'stale-access-token',
     refresh_token: 'stale-refresh-token',
     token_type: 'Bearer',
@@ -362,9 +394,9 @@ async function metaGatedGrantFixture(): Promise<{
   const authServer = await startFakeAuthServer();
   const provider = await readyProvider(fixture);
   const state = authServerState(authServer.url);
-  await provider.saveDiscoveryState(state.discovery);
-  await provider.saveClientInformation(state.client);
-  await provider.saveTokens({
+  await saveBoundDiscovery(provider, state.discovery);
+  await saveBoundClient(provider, state.client);
+  await saveBoundTokens(provider, {
     access_token: 'stale-access-token',
     refresh_token: 'stale-refresh-token',
     token_type: 'Bearer',
@@ -398,9 +430,11 @@ describe('McpOAuthService credential bookkeeping', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
 
-    await fixture.service
-      .getProvider(SERVER_NAME, SERVER_URL)
-      .saveTokens({ access_token: 'a', token_type: 'Bearer', expires_in: 3600 });
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
+      access_token: 'a',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    });
 
     const state = await fixture.service.tokenState(SERVER_NAME, SERVER_URL);
     expect(state.hasTokens).toBe(true);
@@ -429,9 +463,10 @@ describe('McpOAuthService credential bookkeeping', () => {
       expired: false,
     });
 
-    await fixture.service
-      .getProvider(SERVER_NAME, SERVER_URL)
-      .saveTokens({ access_token: 'a', token_type: 'Bearer' });
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
+      access_token: 'a',
+      token_type: 'Bearer',
+    });
     expect(await fixture.service.tokenState(SERVER_NAME, SERVER_URL)).toMatchObject({
       hasTokens: true,
       expired: false,
@@ -443,7 +478,7 @@ describe('McpOAuthService credential bookkeeping', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
 
-    await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
       access_token: 'a',
       token_type: 'Bearer',
       expires_in: -60,
@@ -459,9 +494,10 @@ describe('McpOAuthService credential bookkeeping', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
 
-    await fixture.service
-      .getProvider(SERVER_NAME, SERVER_URL)
-      .saveTokens({ access_token: 'a', token_type: 'Bearer' });
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
+      access_token: 'a',
+      token_type: 'Bearer',
+    });
     expect(await listMetaKeys(fixture.store)).toHaveLength(1);
 
     await fixture.service.invalidate(SERVER_NAME, SERVER_URL, 'tokens');
@@ -481,7 +517,7 @@ describe('McpOAuthService credential bookkeeping', () => {
     const provider = await readyProvider(fixture);
 
     await Promise.all([
-      provider.saveTokens({ access_token: 'a', token_type: 'Bearer' }),
+      saveBoundTokens(provider, { access_token: 'a', token_type: 'Bearer' }),
       provider.clearCredentials('tokens'),
     ]);
     expect(await provider.tokens()).toBeUndefined();
@@ -489,7 +525,7 @@ describe('McpOAuthService credential bookkeeping', () => {
 
     await Promise.all([
       provider.clearCredentials('tokens'),
-      provider.saveTokens({ access_token: 'b', token_type: 'Bearer' }),
+      saveBoundTokens(provider, { access_token: 'b', token_type: 'Bearer' }),
     ]);
     expect(await provider.tokens()).toMatchObject({ access_token: 'b' });
     expect(await listMetaKeys(fixture.store)).toHaveLength(1);
@@ -530,7 +566,7 @@ describe('McpOAuthService single-flight refresh', () => {
     const authServerUrl = `http://127.0.0.1:${port}`;
 
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState({
+    await saveBoundDiscovery(provider, {
       authorizationServerUrl: authServerUrl,
       authorizationServerMetadata: {
         issuer: authServerUrl,
@@ -541,14 +577,14 @@ describe('McpOAuthService single-flight refresh', () => {
         token_endpoint_auth_methods_supported: ['none'],
       },
     });
-    await provider.saveClientInformation({
+    await saveBoundClient(provider, {
       client_id: 'cached-client',
       redirect_uris: ['http://127.0.0.1:45678/callback'],
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
     } satisfies OAuthClientInformationFull);
-    await provider.saveTokens({
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -572,7 +608,7 @@ describe('McpOAuthService single-flight refresh', () => {
     cleanups.push(() => fixture.service.dispose());
     const provider = fixture.service.getProvider(SERVER_NAME, hanging.url);
     await provider.ready;
-    await provider.saveTokens({
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -596,15 +632,15 @@ describe('McpOAuthService single-flight refresh', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
-    await provider.saveClientInformation({
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
+    await saveBoundClient(provider, {
       client_id: 'cached-client',
       redirect_uris: ['http://127.0.0.1:45678/callback'],
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
     } satisfies OAuthClientInformationFull);
-    await provider.saveTokens({
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -621,9 +657,9 @@ describe('McpOAuthService single-flight refresh', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer({ rejectRefreshToken: true });
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
-    await provider.saveClientInformation(authServerState(authServer.url).client);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
+    await saveBoundClient(provider, authServerState(authServer.url).client);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -676,9 +712,9 @@ describe('McpOAuthService single-flight refresh', () => {
 
     const provider = await readyProvider(fixture);
     const state = authServerState(authServerUrl);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, state.discovery);
+    await saveBoundClient(provider, state.client);
+    await saveBoundTokens(provider, {
       access_token: 'seed-access',
       refresh_token: 'seed-refresh',
       token_type: 'Bearer',
@@ -693,7 +729,7 @@ describe('McpOAuthService single-flight refresh', () => {
     await provider.clearCredentials('all');
     expect(await provider.tokens()).toBeUndefined();
 
-    await provider.saveTokens(granted);
+    await saveBoundTokens(provider, granted);
     expect(await provider.tokens()).toBeUndefined();
   }, 15000);
 });
@@ -711,7 +747,7 @@ describe('McpOAuthService interactive flow serialization', () => {
     const fixture = makeFixture(store);
     cleanups.push(() => fixture.service.dispose());
     const provider = await readyProvider(fixture);
-    await provider.saveClientInformation({
+    await saveBoundClient(provider, {
       client_id: 'cached-client',
       redirect_uris: ['http://127.0.0.1:45678/callback'],
       token_endpoint_auth_method: 'none',
@@ -729,9 +765,9 @@ describe('McpOAuthService interactive flow serialization', () => {
       .mockResolvedValue(callbackServer);
     cleanups.push(() => startSpy.mockRestore());
 
-    await expect(
-      fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL),
-    ).rejects.toThrow(/failed to start OAuth flow/);
+    await expect(fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL)).rejects.toThrow(
+      /failed to start OAuth flow/,
+    );
     expect(callbackServer.close).toHaveBeenCalledOnce();
   });
 
@@ -740,13 +776,14 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(
+    await saveBoundDiscovery(
+      provider,
       authServerState(authServer.url, {
         scopesSupported: ['openid', 'offline_access'],
         resourceScopesSupported: ['openid'],
       }).discovery,
     );
-    await provider.saveClientInformation({
+    await saveBoundClient(provider, {
       client_id: 'stale-client',
       redirect_uris: ['http://127.0.0.1:45678/callback'],
       token_endpoint_auth_method: 'none',
@@ -777,8 +814,8 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer({ rejectRefreshToken: true });
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -821,9 +858,9 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => releaseTokensRead());
     const authServer = await startFakeAuthServer({ rejectRefreshToken: true });
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
-    await provider.saveClientInformation(authServerState(authServer.url).client);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
+    await saveBoundClient(provider, authServerState(authServer.url).client);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -882,7 +919,7 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
 
     const first = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
     const second = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
@@ -901,7 +938,7 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
 
     const first = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
     const second = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
@@ -919,7 +956,7 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
 
     const first = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
     const second = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
@@ -938,13 +975,15 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
     });
-    const tokensSavedBefore = fixture.events.filter((event) => event.type === 'tokens-saved').length;
+    const tokensSavedBefore = fixture.events.filter(
+      (event) => event.type === 'tokens-saved',
+    ).length;
 
     await expect(
       fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL),
@@ -966,8 +1005,8 @@ describe('McpOAuthService interactive flow serialization', () => {
     const provider = fixture.service.getProvider(SERVER_NAME, hanging.url);
     await provider.ready;
     const state = authServerState(authServer.url);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
+    await saveBoundDiscovery(provider, { ...state.discovery, resourceMetadata: undefined });
+    await saveBoundClient(provider, state.client);
 
     const flow = await fixture.service.beginAuthorization(SERVER_NAME, hanging.url);
     const complete = flow.complete({ timeoutMs: 10_000 });
@@ -987,8 +1026,8 @@ describe('McpOAuthService interactive flow serialization', () => {
     const provider = fixture.service.getProvider(SERVER_NAME, gated.url);
     await provider.ready;
     const state = authServerState(gated.url);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
+    await saveBoundDiscovery(provider, state.discovery);
+    await saveBoundClient(provider, state.client);
 
     const flow = await fixture.service.beginAuthorization(SERVER_NAME, gated.url);
     const controller = new AbortController();
@@ -1020,8 +1059,12 @@ describe('McpOAuthService sweepProactiveRefresh resilience', () => {
     const state = authServerState(authServer.url);
     const storeKey = mcpOAuthStoreKey(SERVER_NAME, SERVER_URL);
     await fixture.store.write(`${storeKey}-discovery.json`, state.discovery);
-    await fixture.store.write(`${storeKey}-client.json`, state.client);
+    await fixture.store.write(`${storeKey}-client.json`, {
+      ...state.client,
+      issuer: authServer.url,
+    });
     await fixture.store.write(`${storeKey}-tokens.json`, {
+      issuer: authServer.url,
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -1052,9 +1095,9 @@ describe('McpOAuthService proactive refresh scheduling', () => {
 
     const provider = await readyProvider(fixture);
     const state = authServerState(authServer.url);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, state.discovery);
+    await saveBoundClient(provider, state.client);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -1076,9 +1119,9 @@ describe('McpOAuthService proactive refresh scheduling', () => {
 
     const provider = await readyProvider(fixture);
     const state = authServerState(authServer.url);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
-    await provider.saveTokens({
+    await saveBoundDiscovery(provider, state.discovery);
+    await saveBoundClient(provider, state.client);
+    await saveBoundTokens(provider, {
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -1104,7 +1147,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
       .spyOn(fixture.service, 'refresh')
       .mockRejectedValue(new Error('refresh unavailable in test'));
 
-    await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
       access_token: 'a',
       refresh_token: 'r',
       token_type: 'Bearer',
@@ -1130,7 +1173,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
     cleanups.push(() => fixture.service.dispose());
     const refreshSpy = vi.spyOn(fixture.service, 'refresh');
 
-    await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
       access_token: 'a',
       refresh_token: 'r',
       token_type: 'Bearer',
@@ -1146,7 +1189,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
     cleanups.push(() => fixture.service.dispose());
     const refreshSpy = vi.spyOn(fixture.service, 'refresh');
 
-    await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
       access_token: 'a',
       token_type: 'Bearer',
       expires_in: 60,
@@ -1214,7 +1257,7 @@ describe('McpOAuthService shutdown', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+    await saveBoundDiscovery(provider, authServerState(authServer.url).discovery);
 
     const flow = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
 
@@ -1231,9 +1274,11 @@ describe('McpOAuthService shutdown', () => {
     await fixture.service.shutdown();
 
     const eventCount = fixture.events.length;
-    await fixture.service
-      .getProvider(SERVER_NAME, SERVER_URL)
-      .saveTokens({ access_token: 'a', token_type: 'Bearer', expires_in: 3600 });
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
+      access_token: 'a',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    });
     expect(fixture.events).toHaveLength(eventCount);
 
     expect(fixture.service.getProvider(SERVER_NAME, SERVER_URL)).not.toBe(providerBefore);
@@ -1251,7 +1296,7 @@ describe('McpOAuthService shutdown', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
 
-    await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
+    await saveBoundTokens(fixture.service.getProvider(SERVER_NAME, SERVER_URL), {
       access_token: 'a',
       refresh_token: 'r',
       token_type: 'Bearer',
@@ -1289,7 +1334,7 @@ describe('McpOAuthService shutdown', () => {
     });
     await writeStarted;
     armMetaGate();
-    const save = provider.saveTokens({
+    const save = saveBoundTokens(provider, {
       access_token: 'fresh-token',
       token_type: 'Bearer',
       expires_in: 60,
@@ -1319,14 +1364,8 @@ describe('McpOAuthService shutdown', () => {
   }, 15000);
 
   it('drains an SDK save continuation that starts after shutdown began', async () => {
-    const {
-      fixture,
-      provider,
-      tokenUrl,
-      armMetaGate,
-      metaWriteStarted,
-      releaseMetaWrite,
-    } = await metaGatedGrantFixture();
+    const { fixture, provider, tokenUrl, armMetaGate, metaWriteStarted, releaseMetaWrite } =
+      await metaGatedGrantFixture();
     cleanups.push(() => {
       releaseMetaWrite();
     });
@@ -1347,7 +1386,10 @@ describe('McpOAuthService shutdown', () => {
       shutdownSettled = true;
     });
     const save = (async () =>
-      provider.saveTokens((await response.json()) as Parameters<typeof provider.saveTokens>[0]))();
+      saveBoundTokens(
+        provider,
+        (await response.json()) as Parameters<typeof provider.saveTokens>[0],
+      ))();
 
     await metaWriteStarted;
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -1397,8 +1439,8 @@ describe('McpOAuthService shutdown', () => {
     const provider = fixture.service.getProvider(SERVER_NAME, gated.url);
     await provider.ready;
     const state = authServerState(gated.url);
-    await provider.saveDiscoveryState(state.discovery);
-    await provider.saveClientInformation(state.client);
+    await saveBoundDiscovery(provider, state.discovery);
+    await saveBoundClient(provider, state.client);
 
     const flow = await fixture.service.beginAuthorization(SERVER_NAME, gated.url);
     const complete = flow.complete({ timeoutMs: 10_000 });
