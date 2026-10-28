@@ -18,7 +18,7 @@ import {
   truncateSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type {
   GoalSnapshot,
   HeadlessLimits,
@@ -124,14 +124,18 @@ export const emptyUsage = (): HeadlessUsage => ({
   recentDenials: [],
 });
 
-function safeDirectory(path: string, privateMode = true): void {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
+function verifyDirectory(path: string, privateMode = true): void {
   const stat = lstatSync(path);
   if (!stat.isDirectory() || (privateMode && (stat.mode & 0o077) !== 0))
     throw new RunError(
       'unsafe_store',
       'Run storage must be a private real directory: ' + path,
     );
+}
+
+function safeDirectory(path: string, privateMode = true): void {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  verifyDirectory(path, privateMode);
 }
 
 function safeFile(path: string): void {
@@ -190,12 +194,16 @@ export class RunStore {
   ) {
     if (!/^[a-f0-9-]{36}$/.test(id))
       throw new RunError('invalid_run_id', 'Expected a run UUID.');
-    mkdirSync(home, { recursive: true });
-    const base = realpathSync(home);
-    safeDirectory(base, false);
+    const base = existsSync(home) ? realpathSync(home) : resolve(home);
+    if (existsSync(base)) verifyDirectory(base, false);
     this.root = join(base, 'runs');
-    safeDirectory(this.root);
+    if (existsSync(this.root)) verifyDirectory(this.root);
     this.directory = join(this.root, id);
+  }
+
+  private ensureRoot(): void {
+    safeDirectory(dirname(this.root), false);
+    safeDirectory(this.root);
   }
 
   path(name: string): string {
@@ -209,8 +217,38 @@ export class RunStore {
   }
 
   readState(): RunState {
-    safeDirectory(this.directory);
-    const state = this.state();
+    try {
+      verifyDirectory(this.directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      throw new RunError('run_not_found', `No task found for run ${this.id}.`);
+    }
+    let state: RunState;
+    try {
+      state = this.state();
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+        !(error instanceof SyntaxError)
+      )
+        throw error;
+      throw new RunError(
+        'invalid_run_state',
+        `Task ${this.id} has a missing or unreadable state file.`,
+      );
+    }
+    if (
+      state === null ||
+      typeof state !== 'object' ||
+      state.version !== 1 ||
+      state.run_id !== this.id ||
+      typeof state.status !== 'string' ||
+      typeof state.updated_at !== 'string'
+    )
+      throw new RunError(
+        'invalid_run_state',
+        `Task ${this.id} has an invalid state record.`,
+      );
     const ownership = existsSync(this.path('owner.json'))
       ? this.path('owner.json')
       : this.path('launcher.json');
@@ -233,6 +271,7 @@ export class RunStore {
   }
 
   create(request: RunRequest): RunState {
+    this.ensureRoot();
     mkdirSync(this.directory, { mode: 0o700 });
     atomicJson(this.path('request.json'), request);
     const now = new Date().toISOString();
@@ -342,7 +381,9 @@ export class RunStore {
   }
 
   static submitLock(home: string): () => void {
-    const root = new RunStore(home, randomUUID()).root;
+    const store = new RunStore(home, randomUUID());
+    store.ensureRoot();
+    const root = store.root;
     const path = join(root, 'submission.lock');
     if (existsSync(path)) {
       const owner = privateJson<{ pid: number }>(path);
@@ -379,7 +420,7 @@ export class RunStore {
   }
 
   claim(): () => void {
-    safeDirectory(this.directory);
+    verifyDirectory(this.directory);
     this.clearStaleOwner();
     return claimPidFile(
       this.path('owner.json'),
@@ -411,11 +452,34 @@ export class RunStore {
     );
   }
 
-  static list(home: string): RunState[] {
+  static list(home: string): {
+    runs: RunState[];
+    warnings: Array<{ run_id: string; code: string; message: string }>;
+  } {
     const root = new RunStore(home, randomUUID()).root;
-    return readdirSync(root)
-      .filter((name) => /^[a-f0-9-]{36}$/.test(name))
-      .map((name) => new RunStore(home, name).readState())
-      .toSorted((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const runs: RunState[] = [];
+    const warnings: Array<{ run_id: string; code: string; message: string }> =
+      [];
+    if (!existsSync(root)) return { runs, warnings };
+    for (const id of readdirSync(root).filter((name) =>
+      /^[a-f0-9-]{36}$/.test(name),
+    )) {
+      try {
+        runs.push(new RunStore(home, id).readState());
+      } catch (error) {
+        warnings.push({
+          run_id: id,
+          code: error instanceof RunError ? error.code : 'unreadable_run',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Task record could not be read.',
+        });
+      }
+    }
+    return {
+      runs: runs.toSorted((a, b) => b.updated_at.localeCompare(a.updated_at)),
+      warnings,
+    };
   }
 }

@@ -6,6 +6,7 @@ import {
   userMessageLineHeights,
 } from '#/tui/components/messages/user-message';
 import { getTranscriptComponentEntry } from '#/tui/utils/transcript-component-metadata';
+import { reviewApprovalMessageText } from '#/tui/utils/review-approval-message';
 
 export interface StickyUserMessageJudgment {
   component: Component;
@@ -130,11 +131,12 @@ export class StickyUserMessageIndex {
       y += height;
       const entry = getTranscriptComponentEntry(component);
       if (height === 0 || entry?.kind !== 'user' || entry.bullet === '') continue;
+      const content = reviewApprovalMessageText(entry.content);
       let text = this.texts.get(component);
-      if (!text || text.content !== entry.content) {
-        const lines = entry.content.split(/\r?\n/);
+      if (!text || text.content !== content) {
+        const lines = content.split(/\r?\n/);
         const first = firstContentLineIndex(lines);
-        text = { content: entry.content, offset: 1 + first, lines: lines.slice(first) };
+        text = { content, offset: 1 + first, lines: lines.slice(first) };
         this.texts.set(component, text);
       }
       if (text.lines.length === 0) continue;

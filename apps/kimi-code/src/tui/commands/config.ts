@@ -21,6 +21,7 @@ import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selec
 import { ModelSwitchConfirmDialogComponent } from '../components/dialogs/model-switch-confirm-dialog';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
+import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
 import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-preference-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
@@ -59,7 +60,7 @@ import {
 } from '../utils/model-switch';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { showUsage } from './info';
-import { setExperimentalFeatures } from './experimental-flags';
+import { isExperimentalFlagEnabled, setExperimentalFeatures } from './experimental-flags';
 import { notePermissionStateChanged, permissionStateRevision } from './permission-state';
 import type { SlashCommandHost } from './dispatch';
 
@@ -753,6 +754,7 @@ export function showPermissionPicker(host: SlashCommandHost, initialMode?: Permi
     new PermissionSelectorComponent({
       currentValue: host.state.appState.permissionMode,
       initialValue: initialMode,
+      reviewEnabled: isExperimentalFlagEnabled('approval_review'),
       onSelect: (value) => {
         host.restoreEditor();
         void applyPermissionChoice(host, value);
@@ -906,6 +908,33 @@ export async function applyUpdatePreferenceChoice(
   host.showStatus(`Automatic updates ${autoInstall ? 'enabled' : 'disabled'}.`);
 }
 
+function confirmEnableApprovalReview(host: SlashCommandHost): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (enabled: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(enabled);
+    };
+    host.mountEditorReplacement(new ChoicePickerComponent({
+      title: 'Enable Auto Review?',
+      notice: 'Enable the experimental capability in shared configuration and select Auto Review for this session. Review requests use your configured model provider and incur model usage.',
+      noticeTone: 'warning',
+      initialValue: 'cancel',
+      spaceSelect: false,
+      options: [
+        { value: 'cancel', label: 'Cancel' },
+        { value: 'enable', label: 'Enable and use Auto Review' },
+      ],
+      onSelect: (value) => {
+        finish(value === 'enable');
+        host.restoreEditor();
+      },
+      onCancel: () => host.restoreEditor(),
+    }), () => finish(false));
+  });
+}
+
 export async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
   const session = host.session;
   const previousMode = host.state.appState.permissionMode;
@@ -914,10 +943,26 @@ export async function applyPermissionChoice(host: SlashCommandHost, mode: Permis
   const current = (): boolean => host.session === session && permissionStateRevision() === revision;
   try {
     if (mode === 'review') {
-      const feature = (await host.harness.getExperimentalFeatures())
+      let feature = (await host.harness.getExperimentalFeatures())
         .find((entry) => entry.id === 'approval_review');
       if (!current()) return;
-      if (feature?.enabled !== true) throw new Error('Auto Review is disabled by the approval_review capability setting.');
+      if (feature === undefined) throw new Error('This runtime does not support Auto Review. Update Kimi Code to enable it.');
+      if (!feature.enabled) {
+        if (feature.source === 'env' || feature.source === 'master-env')
+          throw new Error(`Auto Review is disabled by ${feature.source === 'env' ? feature.env : 'KIMI_CODE_EXPERIMENTAL_FLAG'}. Relaunch with ${feature.env}=1 to enable it; configuration cannot override this selection here.`);
+        if (!(await confirmEnableApprovalReview(host)) || !current()) return;
+        feature = (await host.harness.getExperimentalFeatures()).find((entry) => entry.id === 'approval_review');
+        if (!current()) return;
+        if (feature === undefined || (!feature.enabled && (feature.source === 'env' || feature.source === 'master-env')))
+          throw new Error('Auto Review availability changed. Reopen /permission to check the current capability.');
+        if (!feature.enabled) await host.harness.setConfig({ experimental: { approval_review: true } });
+        const features = await host.harness.getExperimentalFeatures();
+        if (!current()) return;
+        setExperimentalFeatures(features);
+        host.refreshSlashCommandAutocomplete();
+        if (features.find((entry) => entry.id === 'approval_review')?.enabled !== true)
+          throw new Error('Auto Review could not be enabled. Check its environment override in /experiments.');
+      }
     }
     if (!current()) return;
     await session?.setPermission(mode);

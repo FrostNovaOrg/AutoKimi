@@ -28,6 +28,7 @@ import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { replayBackgroundProjection } from '#/tui/utils/message-replay';
 import type { TaskNotificationOrigin } from '#/tui/utils/message-replay';
+import { createApprovalReviewGrantMessage } from '#/tui/commands/review-state';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
@@ -304,6 +305,18 @@ function backgroundTask(
 }
 
 describe('KimiTUI resume message replay', () => {
+  it('replays approval requests as readable summaries while retaining the stored message', async () => {
+    const text = createApprovalReviewGrantMessage({
+      challenge: '00000000-0000-4000-8000-000000000000', toolCallId: 'call-denied',
+      fingerprint: 'a'.repeat(64), reason: 'Needs approval', toolName: 'Bash', args: { command: 'npm test' },
+    });
+    const driver = await replayIntoDriver([message('user', [{ type: 'text', text }], { origin: { kind: 'user' } })]);
+    expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({ kind: 'user', content: text }));
+    const rendered = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(rendered).toContain('One-time approval requested');
+    expect(rendered).not.toContain('KIMI_REVIEW_GRANT_V1');
+  });
+
   it('does not render legacy goal completion context reminders as transcript messages', async () => {
     const driver = await replayIntoDriver([
       message(

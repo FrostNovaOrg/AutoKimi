@@ -4,6 +4,7 @@ import type { GutterLayout } from '#/tui/components/chrome/gutter-container';
 import * as userMessages from '#/tui/components/messages/user-message';
 import { StickyUserMessageIndex } from '#/tui/utils/sticky-user-message';
 import { markTranscriptComponent } from '#/tui/utils/transcript-component-metadata';
+import { createApprovalReviewGrantMessage } from '#/tui/commands/review-state';
 
 function user(
   content: string,
@@ -34,6 +35,17 @@ function layout(children: GutterLayout['children'], contentWidth = 80): GutterLa
 afterEach(() => vi.restoreAllMocks());
 
 describe('StickyUserMessageIndex', () => {
+  it('uses the readable approval summary when the raw message scrolls out of view', () => {
+    const message = createApprovalReviewGrantMessage({
+      challenge: '00000000-0000-4000-8000-000000000000', toolCallId: 'call-denied',
+      fingerprint: 'a'.repeat(64), reason: 'Needs approval', toolName: 'Bash', args: { command: 'npm test' },
+    });
+    const index = new StickyUserMessageIndex();
+    const summary = index.getJudgment(layout([user(message), other(20)]), 10, true)?.summary;
+    expect(summary).toContain('One-time approval requested');
+    expect(summary).not.toContain('KIMI_REVIEW_GRANT_V1');
+  });
+
   it('has no candidate for empty content or at the start of a transcript', () => {
     const index = new StickyUserMessageIndex();
     expect(index.getJudgment(layout([]), 10, false)).toBeNull();

@@ -73,6 +73,7 @@ import { handleFeedbackCommand } from '#/tui/commands/info';
 import {
   approvalReviewDenials,
   clearApprovalReviewDenials,
+  createApprovalReviewGrantMessage,
 } from '#/tui/commands/review-state';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
@@ -13453,6 +13454,21 @@ describe('transcript fold block clicks', () => {
 
 
 describe('approval review submission acknowledgement', () => {
+  it('shows readable approval text while sending the original grant to the session', async () => {
+    const { driver, session } = await makeDriver();
+    const text = createApprovalReviewGrantMessage({
+      challenge: '00000000-0000-4000-8000-000000000000', toolCallId: 'call-denied',
+      fingerprint: 'a'.repeat(64), reason: 'Needs approval', toolName: 'Bash', args: { command: 'npm test' },
+    });
+    await KimiTUI.prototype.sendReviewApproval.call(driver as never, session as never, text);
+    expect(session.prompt).toHaveBeenCalledWith(text);
+    expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({ kind: 'user', content: text }));
+    const rendered = stripSgr(renderTranscript(driver));
+    expect(rendered).toContain('One-time approval requested');
+    expect(rendered).not.toContain('KIMI_REVIEW_GRANT_V1');
+    expect(rendered).not.toContain('fingerprint');
+  });
+
   it('submits the grant directly to the main session without cache or media interception', async () => {
     const { driver, session } = await makeDriver();
     const cache = (driver as unknown as { cacheHint: { maybeInterceptOnSubmit: () => boolean } }).cacheHint;

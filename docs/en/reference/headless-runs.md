@@ -13,6 +13,8 @@ kimi runs stop <run-id>
 
 `--detach` returns a run ID immediately. Without it, the command follows JSONL events until the attempt ends. `runs status`, `events`, `list`, `stop`, and `schema` do not start a model. Stop acknowledges a cancellation request; poll status until cleanup finishes.
 
+Querying an unknown run with `runs status` returns `run_not_found` without creating a task record. `runs list` keeps readable tasks available when another record is incomplete or corrupt. Its optional `warnings` array identifies skipped records with `run_id`, `code`, and `message`; check these warnings before assuming the list is complete.
+
 Use `--cwd <path>` to grant another workspace, `--prompt-file <path>` for a UTF-8 input file, and `--model <alias>` to select a model for a new task. Place task options after `exec`. `--idempotency-key <key>` makes identical submission retries return the same run; a changed request with the same key is rejected.
 
 ## Budgets
@@ -49,6 +51,8 @@ Network tools and MCP are disabled unless `--allow-network` is present, and stil
 ## Events and exit codes
 
 `kimi runs schema` prints protocol version 1, defaults, statuses, permission requirements, and exit codes. Events carry a monotonic sequence; `--after` is an exclusive cursor across attempts. Output is JSONL (one JSON object per line).
+
+`tool.progress` includes the tool's progress text in `data.message`, capped at 2,048 characters. `data.kind` distinguishes status updates, output, and progress; `percent`, `replace`, and `custom_kind` are included when supplied by the tool. Existing event identifiers, cursors, and protocol version remain unchanged.
 
 | Exit code | Meaning |
 | --- | --- |

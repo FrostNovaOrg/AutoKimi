@@ -13,6 +13,8 @@ kimi runs stop <run-id>
 
 `--detach` 立即返回 run ID；不传此参数则持续输出 JSONL 事件，直到本次执行结束。`runs status`、`events`、`list`、`stop` 和 `schema` 不会启动模型。停止操作先确认已接收取消请求，再查询状态，直到清理完成。
 
+使用 `runs status` 查询不存在的任务会返回 `run_not_found`，不会创建任务记录。当其他记录不完整或损坏时，`runs list` 仍会返回可读取的任务。可选的 `warnings` 数组通过 `run_id`、`code` 和 `message` 标明被跳过的记录；判断列表是否完整前，应检查这些警告。
+
 使用 `--cwd <path>` 授权其他工作区，使用 `--prompt-file <path>` 读取 UTF-8 提示词文件，使用 `--model <alias>` 为新任务选择模型。任务参数放在 `exec` 后。`--idempotency-key <key>` 使相同提交的重试返回同一任务；相同键配合不同请求会被拒绝。
 
 ## 预算
@@ -49,6 +51,8 @@ kimi exec --resume <run-id> --prompt "Continue after the requested clarification
 ## 事件与退出码
 
 `kimi runs schema` 输出协议版本 1、默认值、状态、权限要求和退出码。事件使用单调递增序号；`--after` 是跨执行尝试的排他游标。输出为 JSONL，每行一个 JSON 对象。
+
+`tool.progress` 通过 `data.message` 提供工具的进度文字，最多 2,048 个字符。`data.kind` 区分状态、输出和进度；工具提供时还会包含 `percent`、`replace` 和 `custom_kind`。现有事件标识、游标及协议版本保持不变。
 
 | 退出码 | 含义 |
 | --- | --- |

@@ -42,6 +42,7 @@ function isPermissionModeChoice(value: string): value is PermissionMode {
 export interface PermissionSelectorOptions {
   readonly currentValue: PermissionMode;
   readonly initialValue?: PermissionMode;
+  readonly reviewEnabled?: boolean;
   readonly onSelect: (mode: PermissionMode) => void;
   readonly onCancel: () => void;
 }
@@ -50,7 +51,16 @@ export class PermissionSelectorComponent extends ChoicePickerComponent {
   constructor(opts: PermissionSelectorOptions) {
     super({
       title: 'Select permission mode',
-      options: [...PERMISSION_OPTIONS],
+      options: PERMISSION_OPTIONS.map((option) =>
+        option.value === 'review' && opts.reviewEnabled === false
+          ? {
+              ...option,
+              label: 'Auto Review (not enabled)',
+              description:
+                'Select to enable the experimental capability, then use Auto Review for this session.',
+            }
+          : option,
+      ),
       currentValue: opts.currentValue,
       initialValue: opts.initialValue,
       onSelect: (value) => {

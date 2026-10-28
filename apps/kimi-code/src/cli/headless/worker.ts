@@ -246,7 +246,7 @@ export async function runWorker(
         isError?: boolean;
         code?: string;
         message?: string;
-        update?: { message?: string };
+        update?: Extract<Event, { type: 'tool.progress' }>['update'];
       };
       lastActivity = Date.now();
       if (event.type !== 'assistant.delta') flushText();
@@ -324,7 +324,11 @@ export async function runWorker(
       } else if (event.type === 'tool.progress') {
         emit('tool.progress', {
           tool_call_id: value.toolCallId,
-          message: value.update?.message?.slice(0, 2048),
+          message: value.update?.text?.slice(0, 2048),
+          kind: value.update?.kind,
+          percent: value.update?.percent,
+          replace: value.update?.replace,
+          custom_kind: value.update?.customKind,
         });
       } else if (event.type === 'error') {
         emit('runtime.error', {

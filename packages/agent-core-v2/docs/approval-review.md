@@ -34,6 +34,8 @@ Goals start automatically in review mode, whether created by the model or the TU
 
 The TUI selects the mode through `/permission`. `/approval` manages status, reviewer model selection, and recent eligible denials. An exact retry grant requires a separate confirmation whose default is Cancel. It binds a single action's tool, arguments, working directory, session, agent, evidence, and permission revision; the retry still passes through review. Headless runs do not accept interactive grant markers as authorization.
 
+When the experimental capability is disabled, the permission picker marks Auto Review as unavailable and offers a separate confirmation to enable it in shared configuration. Environment locks remain authoritative. Live transcripts, replay, sticky summaries, and session previews render a human-readable grant summary while retaining the original session message and authorization checks.
+
 ## Client contracts and existing sessions
 
 The canonical config key is `default_permission_mode`. New sessions may explicitly default to review, while existing native manual sessions without a permission event remain manual. No permission-event version or session-storage migration is introduced.
@@ -53,6 +55,8 @@ An older client can reject a new `review` value in a session journal or protocol
 ## Controlled headless execution
 
 `kimi exec` owns a durable run and worker; `kimi runs` exposes schema, status, events, listing, and cancellation without invoking a model. The run records live under the normal Kimi home in `runs/`, and the conversation stays in native session storage. JSONL run events carry protocol version, run/session identifiers, attempt, sequence, timestamp, and a state snapshot.
+
+Run lookups do not create storage. Missing runs return `run_not_found`; listing returns valid records and optional structured warnings for unreadable records. Tool progress preserves the SDK text and optional progress metadata through additive fields in the existing version-1 event payload.
 
 `IHeadlessRun` is inactive in ordinary sessions. A controlled run activates it with immutable limits and shared usage accounting across main agents, subagents, tool calls, and reviewer requests. Resume inherits cumulative usage; raising a budget is explicit. Tokens are accounted after a response, so a final in-flight response can exceed the remaining token budget. Wall time is accumulated across attempts.
 

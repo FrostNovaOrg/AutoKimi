@@ -196,7 +196,7 @@ function confirmApproval(picker: {
 }): void {
   picker.handleInput('\r');
   picker.render(110);
-  picker.handleInput('\x1B[F');
+  picker.handleInput('\u001B[F');
   picker.render(110);
   picker.handleInput('\t');
   picker.handleInput('\r');
@@ -220,6 +220,75 @@ async function approveId(
 }
 
 describe('native TUI approval reviewer', () => {
+  it.each(['enter', 'escape'])('keeps review disabled when the enablement dialog is cancelled with %s', async (key) => {
+    const t = makeHost();
+    t.setEnabled(false);
+    const pending = applyPermissionChoice(t.commandHost, 'review');
+    await vi.waitFor(() => expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce());
+    const panel = t.host.mountEditorReplacement.mock.calls[0]![0] as { handleInput(data: string): void; render(width: number): string[] };
+    expect(panel.render(110).join('\n')).toContain('shared configuration');
+    panel.handleInput(key === 'enter' ? '\r' : '\u001B');
+    await pending;
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(t.host.session.setPermission).not.toHaveBeenCalled();
+    expect(t.host.state.appState.permissionMode).toBe('auto');
+  });
+
+  it('enables the shared capability only after confirmation and selects review for the current session', async () => {
+    const t = makeHost();
+    t.setEnabled(false);
+    const pending = applyPermissionChoice(t.commandHost, 'review');
+    await vi.waitFor(() => expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce());
+    const panel = t.host.mountEditorReplacement.mock.calls[0]![0] as { handleInput(data: string): void };
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    panel.handleInput('\u001B[B');
+    panel.handleInput('\r');
+    await pending;
+    expect(t.host.harness.setConfig).toHaveBeenCalledExactlyOnceWith({ experimental: { approval_review: true } });
+    expect(t.host.session.setPermission).toHaveBeenCalledWith('review');
+    expect(t.host.state.appState.permissionMode).toBe('review');
+    expect(isExperimentalFlagEnabled('approval_review')).toBe(true);
+    expect(t.host.showError).not.toHaveBeenCalled();
+  });
+
+  it('does not enable a capability after the selected session is replaced', async () => {
+    const t = makeHost();
+    t.setEnabled(false);
+    const pending = applyPermissionChoice(t.commandHost, 'review');
+    await vi.waitFor(() => expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce());
+    const panel = t.host.mountEditorReplacement.mock.calls[0]![0] as { handleInput(data: string): void };
+    t.host.session = t.makeSession().session;
+    panel.handleInput('\u001B[B');
+    panel.handleInput('\r');
+    await pending;
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(t.host.session.setPermission).not.toHaveBeenCalled();
+  });
+
+  it('keeps the current mode and reports a failed enablement save', async () => {
+    const t = makeHost();
+    t.setEnabled(false);
+    t.host.harness.setConfig.mockRejectedValueOnce(new Error('Configuration could not be saved'));
+    const pending = applyPermissionChoice(t.commandHost, 'review');
+    await vi.waitFor(() => expect(t.host.mountEditorReplacement).toHaveBeenCalledOnce());
+    const panel = t.host.mountEditorReplacement.mock.calls[0]![0] as { handleInput(data: string): void };
+    panel.handleInput('\u001B[B');
+    panel.handleInput('\r');
+    await pending;
+    expect(t.host.session.setPermission).not.toHaveBeenCalled();
+    expect(t.host.showError).toHaveBeenCalledWith(expect.stringContaining('Configuration could not be saved'));
+    expect(t.host.state.appState.permissionMode).toBe('auto');
+  });
+
+  it('explains environment overrides without offering a configuration change', async () => {
+    const t = makeHost('master-env');
+    t.setEnabled(false);
+    await applyPermissionChoice(t.commandHost, 'review');
+    expect(t.host.mountEditorReplacement).not.toHaveBeenCalled();
+    expect(t.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(t.host.showError).toHaveBeenCalledWith(expect.stringContaining('KIMI_CODE_EXPERIMENTAL_APPROVAL_REVIEW=1'));
+  });
+
   afterEach(() => {
     clearApprovalReviewDenials();
     denialSequence = 0;
@@ -510,8 +579,8 @@ describe('native TUI approval reviewer', () => {
     registerDenial();
     registerDenial('session-test', 'call-newer');
     const { pending, picker } = await openApprovalPicker(t);
-    picker.handleInput('\x1B');
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
+    picker.handleInput('\u001B');
     await pending;
     expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(t.host.restoreEditor).toHaveBeenCalled();
@@ -535,8 +604,8 @@ describe('native TUI approval reviewer', () => {
         'The selected auto-review denial is no longer active.',
       ),
     );
-    picker.handleInput('\x1B');
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
+    picker.handleInput('\u001B');
     await pending;
     expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(approvalReviewDenials('session-test')).toHaveLength(2);
@@ -562,8 +631,8 @@ describe('native TUI approval reviewer', () => {
       ),
     );
     expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
-    picker.handleInput('\x1B');
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
+    picker.handleInput('\u001B');
     await pending;
     expect(t.host.sendReviewApproval).not.toHaveBeenCalled();
     expect(
@@ -750,7 +819,7 @@ describe('native TUI approval reviewer', () => {
     await vi.waitFor(() =>
       expect(picker.render(110).join('\n')).not.toContain('Sending one-time'),
     );
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
     confirmApproval(picker);
     await pending;
     expect(t.host.sendReviewApproval).toHaveBeenCalledTimes(2);
@@ -782,7 +851,7 @@ describe('native TUI approval reviewer', () => {
     const output = picker.render(110).join('\n');
     expect(output).toContain('Follow current session model');
     expect(output).toContain('Shared setting for all sessions');
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
     await pending;
     expect(t.host.harness.setConfig).not.toHaveBeenCalled();
   });
@@ -800,7 +869,7 @@ describe('native TUI approval reviewer', () => {
     expect(picker.render(110).join('\n')).toContain('current session');
     picker.handleInput(' ');
     expect(t.host.session.setPermission).not.toHaveBeenCalled();
-    picker.handleInput('\x1B');
+    picker.handleInput('\u001B');
     await pending;
   });
 });

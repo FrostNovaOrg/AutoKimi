@@ -8,12 +8,39 @@ import {
 } from '#/tui/components/messages/user-message';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
+import { createApprovalReviewGrantMessage } from '#/tui/commands/review-state';
+import { reviewApprovalMessageText } from '#/tui/utils/review-approval-message';
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
 }
 
 describe('UserMessageComponent', () => {
+  it('renders a one-time approval summary without changing the original message', () => {
+    const message = createApprovalReviewGrantMessage({
+      challenge: '00000000-0000-4000-8000-000000000000',
+      toolCallId: 'call-denied', fingerprint: 'a'.repeat(64),
+      reason: 'Needs approval', toolName: 'Bash', args: { command: 'npm test' },
+    });
+    const summary = reviewApprovalMessageText(message);
+    const component = new UserMessageComponent(message);
+    const rendered = stripAnsi(component.render(100).join('\n'));
+    expect(rendered).toContain('One-time approval requested');
+    expect(rendered).toContain('must pass Auto Review again');
+    expect(rendered).not.toContain('KIMI_REVIEW_GRANT_V1');
+    expect(rendered).not.toContain('fingerprint');
+    expect(message).toContain('KIMI_REVIEW_GRANT_V1');
+    expect(userMessageLineHeights(message, 40)).toEqual(userMessageLineHeights(summary, 40));
+  });
+
+  it.each([
+    'Please document KIMI_REVIEW_GRANT_V1',
+    'KIMI_REVIEW_GRANT_V1\n{broken\nExample',
+    'KIMI_REVIEW_GRANT_V1\n{}\nExample',
+  ])('keeps ordinary text and incomplete grant examples visible: %s', (message) => {
+    expect(reviewApprovalMessageText(message)).toBe(message);
+  });
+
   afterEach(() => {
     resetCapabilitiesCache();
   });

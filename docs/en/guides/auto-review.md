@@ -4,6 +4,8 @@ Auto Review is an experimental permission mode. It uses a separate model request
 
 ## Enable Auto Review
 
+In the TUI, open `/permission` and select `Auto Review (not enabled)` to enable the capability and use it for the current session. The confirmation defaults to Cancel and explains model usage. Enabling the capability changes shared configuration; it does not change other sessions' permission modes. If an environment variable locks the capability off, the TUI shows how to enable it when restarting.
+
 Add this table to your existing `config.toml`, or merge the key into an existing `[experimental]` table:
 
 ```toml
@@ -45,6 +47,8 @@ Review requests have no tools. Authorization comes from genuine user requests an
 | `/approval approve <toolCallId>` | Inspect one particular denied action |
 
 The approval dialog shows the complete tool arguments and working directory, defaults to Cancel, and requires a separate confirmation. Approval authorizes one identical retry that must pass review again. It cannot bypass explicit rules, protected instructions or configuration, or critical-risk restrictions. Changing permission mode, undoing or compacting context, closing the session, or restarting invalidates old grants.
+
+The conversation, resumed history, and session picker show a readable one-time approval summary. The original authorization record remains in the native session for verification and auditing.
 
 The reviewer model is a shared configuration setting; permission mode belongs to the session. By default the reviewer follows the agent's model and authentication. Choosing another alias uses that alias's provider, base URL, and credentials. Review evidence is sent to that provider and review calls incur model usage, including retries. Review effort follows the implementation's low/off policy, rather than the main agent's selected effort.
 

@@ -569,9 +569,10 @@ export function registerHeadlessCommands(
   runs
     .command('list')
     .action(
-      handle(() =>
-        json({ version: 1, runs: RunStore.list(resolveKimiHome()) }),
-      ),
+      handle(() => {
+        const { runs, warnings } = RunStore.list(resolveKimiHome());
+        json({ version: 1, runs, warnings: warnings.length > 0 ? warnings : undefined });
+      }),
     );
   runs
     .command('status <id>')

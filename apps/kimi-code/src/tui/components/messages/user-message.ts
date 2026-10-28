@@ -18,6 +18,7 @@ import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
 import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
 import { markOsc133Zone } from '#/tui/utils/osc133';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import { reviewApprovalMessageText } from '#/tui/utils/review-approval-message';
 
 export function firstContentLineIndex(lines: string[]): number {
   let first = 0;
@@ -28,7 +29,7 @@ export function firstContentLineIndex(lines: string[]): number {
 export function userMessageLineHeights(text: string, width: number, bullet?: string): number[] {
   const marker = bullet ?? USER_MESSAGE_BULLET;
   const contentWidth = Math.max(1, width - visibleWidth(marker));
-  const lines = text.split(/\r?\n/);
+  const lines = reviewApprovalMessageText(text).split(/\r?\n/);
   return lines
     .slice(firstContentLineIndex(lines))
     .map((line) => wrapTextWithAnsi(line.replaceAll('\t', '   '), contentWidth).length);
@@ -49,7 +50,7 @@ export class UserMessageComponent implements Component {
     bullet?: string,
     skillNames?: readonly string[],
   ) {
-    this.text = text;
+    this.text = reviewApprovalMessageText(text);
     this.bullet = bullet;
     this.skillNames = skillNames;
     this.spacerComponent = new Spacer(1);

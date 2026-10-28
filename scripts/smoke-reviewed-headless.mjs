@@ -425,6 +425,24 @@ try {
   const schema = (await call(['runs', 'schema'])).events[0];
   assert.equal(schema.version, 1);
   assert.equal(schema.permissions.mode, 'review');
+  const missingId = '00000000-0000-4000-8000-000000000001';
+  const missing = await call(['runs', 'status', missingId]);
+  assert.equal(missing.code, 2);
+  assert.equal(missing.events[0].error.code, 'run_not_found');
+  assert.equal(existsSync(join(home, 'runs', missingId)), false);
+  const emptyList = await call(['runs', 'list']);
+  assert.equal(emptyList.code, 0);
+  assert.deepEqual(emptyList.events[0].runs, []);
+  const corruptId = '00000000-0000-4000-8000-000000000002';
+  const corruptDirectory = join(home, 'runs', corruptId);
+  await mkdir(corruptDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(join(corruptDirectory, 'state.json'), '{broken', { mode: 0o600 });
+  const corruptList = await call(['runs', 'list']);
+  assert.equal(corruptList.code, 0);
+  assert.deepEqual(corruptList.events[0].runs, []);
+  assert.equal(corruptList.events[0].warnings[0].run_id, corruptId);
+  assert.equal(corruptList.events[0].warnings[0].code, 'invalid_run_state');
+  await rm(corruptDirectory, { recursive: true, force: true });
   const printCwd = printWorkspace;
   await mkdir(printCwd);
   const printReviews = reviews;
@@ -645,6 +663,9 @@ try {
     'review',
   );
   assert.equal(written.code, 0, JSON.stringify(written));
+  const reviewProgress = written.events.filter((event) => event.type === 'tool.progress' && event.data.custom_kind === 'approval.review');
+  assert.ok(reviewProgress.length > 0);
+  assert.ok(reviewProgress.every((event) => event.data.kind === 'status' && event.data.message.length > 0));
   assert.ok(reviews > 0);
   assert.equal(await readFile(join(cwd, 'result.txt'), 'utf8'), 'fixture done');
   const writeId = written.events[0].run_id;
