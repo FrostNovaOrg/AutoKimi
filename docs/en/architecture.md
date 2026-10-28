@@ -101,3 +101,5 @@ autokimi -r <id>
 Import copies one selected legacy session, rejecting source/target locks, duplicate IDs, links, special files and individual files over 256 MiB. It compares source state before and after copying, then publishes a staged copy atomically without changing the original. Close the source normally first; let that client safely clear locks left by a crash. History, context and cumulative usage stay in the copy. Headless run budgets still come from their own run journal.
 
 Pre-version-2 `manual` sessions with effective review enabled migrate to `review`. Legacy manual/off, yolo and auto retain their mode. The version marker prevents a later explicit Always Ask choice from being re-enabled on resume. Every actual mode transition increments an authorization generation; a mode switch immediately cancels in-flight review requests, and pending decisions or unused one-time grants cannot survive a mode round trip.
+
+Starting an agent from an invalid AutoKimi permission default fails explicitly, without falling back to native Never Ask.

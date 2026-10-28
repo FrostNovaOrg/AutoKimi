@@ -82,6 +82,24 @@ describe('native Auto Review permission mode', () => {
     }
   });
 
+  it('rejects an invalid AutoKimi default instead of inheriting native Never Ask', async () => {
+    const { homeDir, workDir, harness } = await fixture();
+    try {
+      const config = join(homeDir, 'config.toml');
+      await writeFile(
+        config,
+        'autokimi_permission_mode = "invalid-mode"\ndefault_permission_mode = "auto"\n' +
+          (await readFile(config, 'utf8')),
+      );
+      await harness.getConfig({ reload: true });
+      await expect(
+        harness.createSession({ workDir, model: 'fixture' }),
+      ).rejects.toThrow('Invalid autokimi_permission_mode');
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('keeps an explicit manual choice after review is switched off and the session is resumed', async () => {
     const { homeDir, workDir, harness } = await fixture();
     const session = await harness.createSession({

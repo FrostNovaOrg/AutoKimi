@@ -652,7 +652,7 @@ index 5375e91..76a713b 100644
      this.clientIdentity = bootstrap.clientIdentity.platform || bootstrap.clientIdentity.productName;
      this.clientDisplayName =
 diff --git a/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts b/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
-index 8939db9..76eec4f 100644
+index 8939db9..906f078 100644
 --- a/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
 +++ b/packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts
 @@ -1,3 +1,4 @@
@@ -668,7 +668,7 @@ index 8939db9..76eec4f 100644
 -import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
 +import { IFlagService } from '#/app/flag/flag';
 +import { APPROVAL_REVIEW_FLAG } from '#/agent/approvalReview/config';
-+import { AUTOKIMI_PERMISSION_MODE_SECTION, DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
++import { AUTOKIMI_PERMISSION_MODE_SECTION, AutoKimiPermissionModeSchema, DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 +import { permissionModeConfiguredKey, permissionModeVersionKey } from '#/agent/permissionMode/permissionModeOps';
  import type { PermissionMode } from '#/agent/permissionPolicy/types';
  import { profileKey } from '#/agent/profile/profileOps';
@@ -689,7 +689,7 @@ index 8939db9..76eec4f 100644
        stage = 'restore';
        await handle.accessor.get(IEventDispatcher).restore();
        attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
-@@ -402,12 +407,28 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+@@ -402,12 +407,34 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
      if (opts.binding !== undefined) {
        await handle.accessor.get(IAgentProfileService).bind(opts.binding);
      }
@@ -716,6 +716,12 @@ index 8939db9..76eec4f 100644
 +      ? feature.enabled : typeof legacyOverride === 'boolean'
 +        ? legacyOverride : feature?.source === 'config' && feature.enabled;
 +    if (!restored) {
++      const ownUserValue = this.config.inspect?.(AUTOKIMI_PERMISSION_MODE_SECTION).userValue;
++      if (ownDefault === undefined && ownUserValue !== undefined &&
++        !AutoKimiPermissionModeSchema.safeParse(ownUserValue).success) {
++        throw new Error2(ErrorCodes.CONFIG_INVALID,
++          'Invalid autokimi_permission_mode; choose manual, review, yolo, or auto before starting a task.');
++      }
 +      const selected = ownDefault ?? (legacyReview && (legacyDefault ?? mode.mode) === 'manual'
 +        ? 'review' : legacyDefault ?? mode.mode);
 +      mode.setMode(selected);
@@ -724,7 +730,7 @@ index 8939db9..76eec4f 100644
      }
    }
  
-@@ -436,6 +457,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+@@ -436,6 +463,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
      });
      const child = this.requireManaged(childContext).handle;
  
@@ -734,7 +740,7 @@ index 8939db9..76eec4f 100644
      const childProfile = child.accessor.get(IAgentProfileService);
      if (override?.profile !== undefined) {
        await childProfile.bind({
-@@ -477,7 +501,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
+@@ -477,7 +507,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
      for (const managed of this.roster.values()) {
        if (managed.closing || !managed.active) continue;
        const handle = managed.handle;
